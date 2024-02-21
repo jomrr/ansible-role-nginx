@@ -1,0 +1,7 @@
+---
+# role: nginx
+# file: meta/requirements.yml
+
+collections: []
+
+roles: []

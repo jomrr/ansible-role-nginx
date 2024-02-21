@@ -1,0 +1,32 @@
+---
+# role: ansible-role-nginx
+# file: molecule/default/molecule.yml
+
+dependency:
+  name: galaxy
+  options:
+    requirements-file: meta/requirements.yml
+driver:
+  name: podman
+lint: |
+  set -e
+  ansible-lint
+provisioner:
+  name: ansible
+  config_options:
+    defaults:
+      interpreter_python: auto_silent
+      callback_whitelist: profile_tasks, timer, yaml
+    ssh_connection:
+      pipelining: true
+  log: true
+  playbooks:
+    converge: ../resources/playbooks/converge.yml
+    verify: ../resources/playbooks/verify.yml
+verifier:
+  name: ansible
+platforms:
+  - name: nginx
+    image: "docker.io/${uns:-jam82}/molecule-${img:-fedora}:${tag:-latest}"
+    pre_build_image: true
+    command: ""

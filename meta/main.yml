@@ -1,0 +1,21 @@
+---
+# role: nginx
+# file: meta/main.yml
+
+galaxy_info:
+  namespace: jam82
+  role_name: nginx
+  author: Jonas Mauer
+  company: none
+  description: Ansible role for setting up the nginx sever.
+  license: MIT
+  issue_tracker_url: https://github.com/jam82/ansible-role-nginx/issues
+  min_ansible_version: "2.15"
+  galaxy_tags:
+    - loadbalancer
+    - nginx
+    - reverseproxy
+    - server
+    - vhost
+    - web
+    - webserver
