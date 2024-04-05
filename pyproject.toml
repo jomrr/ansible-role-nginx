@@ -6,12 +6,10 @@ authors = ["Jonas Mauer"]
 license = "MIT"
 keywords = [loadbalancer, nginx, reverseproxy, server, vhost, web, webserver]
 
-repository = "https://github.com/jam82/ansible-role-nginx"
+repository = "https://github.com/jomrr/ansible-role-nginx"
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version_provider = "pep621"
-tag_format = "v$version"
 
 [tool.semantic_release]
 commit_message = "build(release): version {version}"

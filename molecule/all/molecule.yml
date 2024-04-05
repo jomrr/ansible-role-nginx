@@ -27,41 +27,41 @@ verifier:
   name: ansible
 platforms:
   - name: debian-11-nginx
-    image: "docker.io/jam82/molecule-debian:11"
+    image: "docker.io/jomrr/molecule-debian:11"
     pre_build_image: true
   - name: debian-12-nginx
-    image: "docker.io/jam82/molecule-debian:12"
+    image: "docker.io/jomrr/molecule-debian:12"
     pre_build_image: true
   - name: debian-latest-nginx
-    image: "docker.io/jam82/molecule-debian:latest"
+    image: "docker.io/jomrr/molecule-debian:latest"
     pre_build_image: true
   - name: debian-testing-nginx
-    image: "docker.io/jam82/molecule-debian:testing"
+    image: "docker.io/jomrr/molecule-debian:testing"
     pre_build_image: true
   - name: ubuntu-20.04-nginx
-    image: "docker.io/jam82/molecule-ubuntu:20.04"
+    image: "docker.io/jomrr/molecule-ubuntu:20.04"
     pre_build_image: true
   - name: ubuntu-22.04-nginx
-    image: "docker.io/jam82/molecule-ubuntu:22.04"
+    image: "docker.io/jomrr/molecule-ubuntu:22.04"
     pre_build_image: true
   - name: ubuntu-latest-nginx
-    image: "docker.io/jam82/molecule-ubuntu:latest"
+    image: "docker.io/jomrr/molecule-ubuntu:latest"
     pre_build_image: true
   - name: almalinux-8-nginx
-    image: "docker.io/jam82/molecule-almalinux:8"
+    image: "docker.io/jomrr/molecule-almalinux:8"
     pre_build_image: true
   - name: almalinux-9-nginx
-    image: "docker.io/jam82/molecule-almalinux:9"
+    image: "docker.io/jomrr/molecule-almalinux:9"
     pre_build_image: true
   - name: almalinux-latest-nginx
-    image: "docker.io/jam82/molecule-almalinux:latest"
+    image: "docker.io/jomrr/molecule-almalinux:latest"
     pre_build_image: true
   - name: fedora-39-nginx
-    image: "docker.io/jam82/molecule-fedora:39"
+    image: "docker.io/jomrr/molecule-fedora:39"
     pre_build_image: true
   - name: fedora-latest-nginx
-    image: "docker.io/jam82/molecule-fedora:latest"
+    image: "docker.io/jomrr/molecule-fedora:latest"
     pre_build_image: true
   - name: fedora-rawhide-nginx
-    image: "docker.io/jam82/molecule-fedora:rawhide"
+    image: "docker.io/jomrr/molecule-fedora:rawhide"
     pre_build_image: true

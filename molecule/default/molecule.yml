@@ -27,6 +27,6 @@ verifier:
   name: ansible
 platforms:
   - name: nginx
-    image: "docker.io/${uns:-jam82}/molecule-${img:-fedora}:${tag:-latest}"
+    image: "docker.io/${uns:-jomrr}/molecule-${img:-fedora}:${tag:-latest}"
     pre_build_image: true
     command: ""
