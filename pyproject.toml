@@ -4,7 +4,7 @@ version = "0.0.0"
 description = "Ansible role for setting up the nginx sever."
 authors = ["Jonas Mauer"]
 license = "MIT"
-keywords = [loadbalancer, nginx, reverseproxy, server, vhost, web, webserver]
+keywords = ["loadbalancer", "nginx", "reverseproxy", "vhost", "web", "webserver"]
 
 repository = "https://github.com/jomrr/ansible-role-nginx"
 

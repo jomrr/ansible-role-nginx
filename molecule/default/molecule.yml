@@ -1,16 +1,15 @@
 ---
-# role: ansible-role-nginx
+# name: jomrr.ansible-role-nginx
 # file: molecule/default/molecule.yml
 
+scenario:
+  name: default
 dependency:
   name: galaxy
-  options:
-    requirements-file: meta/requirements.yml
+  requirements-file: meta/requirements.yml
 driver:
   name: podman
-lint: |
-  set -e
-  ansible-lint
+lint: set -e; ansible-lint
 provisioner:
   name: ansible
   config_options:
@@ -27,6 +26,8 @@ verifier:
   name: ansible
 platforms:
   - name: nginx
-    image: "docker.io/${uns:-jomrr}/molecule-${img:-fedora}:${tag:-latest}"
+    image: docker.io/${uns:-jomrr}/molecule-${img:-fedora}:${tag:-latest}
     pre_build_image: true
-    command: ""
+    entrypoint: null
+    command: null
+    systemd: true

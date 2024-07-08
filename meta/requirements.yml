@@ -1,7 +1,5 @@
 ---
-# role: nginx
+# name: jomrr.nginx
 # file: meta/requirements.yml
 
-collections: []
-
-roles: []
+- name: community.general

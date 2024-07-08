@@ -1,8 +1,8 @@
----
-# role: ansible-role-nginx
+# role: jomrr.nginx
 # file: molecule/resources/playbooks/verify.yml
+# code: language=ansible-jinja
 
-- name: "PLAYBOOK | Verify"
+- name: "PLAYBOOK | Verify | nginx"
   hosts: all
   gather_facts: false
   tasks:
