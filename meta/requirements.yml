@@ -1,5 +1,0 @@
----
-# name: jomrr.nginx
-# file: meta/requirements.yml
-
-- name: community.general
