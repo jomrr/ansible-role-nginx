@@ -1,0 +1,40 @@
+---
+# repo: jomrr.nginx
+# file: tasks/main.yml
+
+- name: "Set os_family dependent variables"
+  ansible.builtin.include_vars: '{{ ansible_os_family | lower }}.yml'
+
+- name: "Set distribution dependent variables"
+  ansible.builtin.include_vars: "{{ item }}"
+  vars:
+    params:
+      files:
+        - "{{ ansible_distribution | lower }}-{{ ansible_distribution_major_version }}.yml"
+        - "{{ ansible_distribution | lower }}.yml"
+        - "{{ ansible_os_family | lower }}-{{ ansible_distribution_major_version }}.yml"
+      paths:
+        - 'vars'
+      skip: true
+  loop: "{{ query('first_found', params, errors='ignore') }}"
+
+- name: "Install nginx"
+  ansible.builtin.package:
+    name: "{{ nginx_packages }}"
+    state: present
+
+- name: "Generate DH Parameters file for nginx"
+  become: true
+  community.crypto.openssl_dhparam:
+    path: "{{ nginx_dhparam_file }}"
+    size: 4096
+
+- name: "Generate nginx.conf"
+  become: true
+  ansible.builtin.template:
+    src: "nginx.conf.j2"
+    dest: "{{ nginx_conf }}"
+    owner: "root"
+    group: "{{ nginx_group }}"
+    mode: "0640"
+  notify: "Restart nginx"

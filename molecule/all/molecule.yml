@@ -1,5 +1,5 @@
 ---
-# name: jomrr.ansible-role-nginx
+# role: jomrr.ansible-role-nginx
 # file: molecule/all/molecule.yml
 
 scenario:
@@ -73,12 +73,6 @@ platforms:
     entrypoint: null
     command: null
     systemd: true
-  - name: fedora-39-nginx
-    image: "docker.io/jomrr/molecule-fedora:39"
-    pre_build_image: true
-    entrypoint: null
-    command: null
-    systemd: true
   - name: fedora-40-nginx
     image: "docker.io/jomrr/molecule-fedora:40"
     pre_build_image: true
@@ -93,12 +87,6 @@ platforms:
     systemd: true
   - name: opensuse-leap-15-nginx
     image: "docker.io/jomrr/molecule-opensuse-leap:15"
-    pre_build_image: true
-    entrypoint: null
-    command: null
-    systemd: true
-  - name: ubuntu-20.04-nginx
-    image: "docker.io/jomrr/molecule-ubuntu:20.04"
     pre_build_image: true
     entrypoint: null
     command: null

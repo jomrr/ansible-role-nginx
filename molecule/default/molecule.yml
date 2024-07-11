@@ -1,5 +1,5 @@
 ---
-# name: jomrr.ansible-role-nginx
+# role: jomrr.ansible-role-nginx
 # file: molecule/default/molecule.yml
 
 scenario:

@@ -1,0 +1,14 @@
+---
+# role: jomrr.nginx
+# file: vars/debian.yml
+
+nginx_conf: /etc/nginx/nginx.conf
+
+nginx_user: www-data
+nginx_group: www-data
+
+nginx_include_path_configs: "/etc/nginx/conf.d/*.conf"
+nginx_include_path_modules: "/etc/nginx/modules-enabled/*.conf"
+nginx_include_path_sites: "/etc/nginx/sites-enabled/*"
+
+nginx_pid_file: /run/nginx.pid

@@ -1,6 +1,5 @@
 # role: jomrr.nginx
 # file: molecule/resources/playbooks/verify.yml
-# code: language=ansible-jinja
 
 - name: "PLAYBOOK | Verify | nginx"
   hosts: all

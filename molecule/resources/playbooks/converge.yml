@@ -1,10 +1,8 @@
 # role: jomrr.nginx
 # file: molecule/resources/playbooks/converge.yml
-# code: language=ansible-jinja
 
 - name: "PLAYBOOK | Converge | nginx"
   hosts: all
-  become: true
   gather_facts: true
   roles:
     - role: "{{ lookup('ansible.builtin.env', 'MOLECULE_PROJECT_DIRECTORY') }}"

@@ -1,0 +1,10 @@
+---
+# role: jomrr.nginx
+# file: vars/redhat.yml
+
+nginx_conf: /etc/nginx/nginx.conf
+
+nginx_user: nginx
+nginx_group: nginx
+
+nginx_modules_include_path:

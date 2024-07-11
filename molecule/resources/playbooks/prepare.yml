@@ -1,6 +1,5 @@
 # role: jomrr.nginx
 # file: molecule/resources/playbooks/prepare.yml
-# code: language=ansible-jinja
 
 - name: "PLAYBOOK | Prepare | nginx"
   hosts: all
