@@ -2,6 +2,14 @@
 # role: jomrr.nginx
 # file: defaults/main.yml
 
+nginx_keepalive_timeout: "5 5"
+nginx_tcp_nodelay: "on"
+
+nginx_proxy_buffering: "off"
+nginx_proxy_request_buffering: "off"
+nginx_proxy_send_timeout: "120"
+nginx_proxy_read_timeout: "300"
+
 # nginx cipher suites
 nginx_ciphers:
   - ECDHE-ECDSA-AES128-GCM-SHA256
@@ -29,7 +37,7 @@ nginx_worker_processes: "{{ ansible_processor_vcpus | default(2) }}"
 nginx_vhosts: []
 #   - name: "example"
 #     file: "example.conf"
-#     status: "enabled" # enabled or disabled
+#     status: "enabled" # enabled or disabled or absent
 #     config: |
 #       server {
 #         listen              443 ssl http2;
