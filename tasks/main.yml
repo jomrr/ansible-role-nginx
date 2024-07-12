@@ -38,3 +38,23 @@
     group: "{{ nginx_group }}"
     mode: "0640"
   notify: "Restart nginx"
+
+- name: "Deploy vhosts"
+  ansible.builtin.copy:
+    content: "{{ item.config }}"
+    dest: "{{ nginx_sites_available_path }}/{{ item.file }}"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+  loop: "{{ nginx_vhosts }}"
+  notify: "Restart nginx"
+  when: item.status == "enabled"
+
+- name: "Link to sites-enabled"
+  ansible.builtin.file:
+    src: "{{ nginx_sites_available_path }}/{{ item.file }}"
+    dest: "{{ nginx_sites_enabled_path }}/{{ item.file }}"
+    state: link
+  loop: "{{ nginx_vhosts }}"
+  notify: "Restart nginx"
+  when: ansible_os_family == "Debian" and item.status == "enabled"

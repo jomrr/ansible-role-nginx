@@ -4,7 +4,14 @@
 
 nginx_conf: /etc/nginx/nginx.conf
 
-nginx_user: nginx
-nginx_group: nginx
+nginx_user: www-data
+nginx_group: www-data
 
-nginx_modules_include_path:
+nginx_include_path_configs: "/etc/nginx/conf.d/*.conf"
+nginx_include_path_modules: "/etc/nginx/modules.conf.d/*.conf"
+nginx_include_path_sites: "/etc/nginx/conf.d/*"
+
+nginx_sites_available_path: "/etc/nginx/conf.d"
+nginx_sites_enabled_path: "/etc/nginx/conf.d"
+
+nginx_pid_file: /var/run/nginx.pid

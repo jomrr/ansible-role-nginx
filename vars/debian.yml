@@ -11,4 +11,7 @@ nginx_include_path_configs: "/etc/nginx/conf.d/*.conf"
 nginx_include_path_modules: "/etc/nginx/modules-enabled/*.conf"
 nginx_include_path_sites: "/etc/nginx/sites-enabled/*"
 
+nginx_sites_available_path: "/etc/nginx/sites-available"
+nginx_sites_enabled_path: "/etc/nginx/sites-enabled"
+
 nginx_pid_file: /run/nginx.pid
