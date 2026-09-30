@@ -97,6 +97,13 @@ nginx_limit_req_zones:
     size: 10m
     rate: 20r/s
 
+# Sets the log level for requests rejected by concurrency limiting.
+# Choices: info, notice, warn, error
+nginx_limit_conn_log_level: warn
+
+# Sets the HTTP status returned when a concurrency limit rejects a request.
+nginx_limit_conn_status: 429
+
 # Defines shared concurrency-limit zones; native vhosts or locations activate them with limit_conn.
 nginx_limit_conn_zones:
   - name: per_client

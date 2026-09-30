@@ -5,6 +5,11 @@
 - name: Molecule | prepare | nginx
   hosts: all
   gather_facts: true
+  vars:
+    __nginx_test_venv_packages:
+      Debian: python3-venv
+      RedHat: python3-pip-wheel
+      Fedora: python-pip-wheel
   tasks:
 
     - name: NGINX | Refresh APT package metadata
@@ -50,10 +55,7 @@
             name:
               - python3-packaging
               - python3-pip
-              - >-
-                {{ 'python3-venv' if ansible_facts.os_family == 'Debian'
-                   else 'python-pip-wheel' if ansible_facts.distribution == 'Fedora'
-                   else 'python3-pip-wheel' }}
+              - '{{ __nginx_test_venv_packages.get(ansible_facts.distribution, __nginx_test_venv_packages[ansible_facts.os_family]) }}'
             state: present
 
         - name: NGINX | Install the HTTP/3 client in an isolated test environment
@@ -173,4 +175,4 @@
         path: /etc/hosts
         # Podman bind-mounts this file, so atomic rename is unavailable.
         unsafe_writes: true
-        line: 127.0.0.1 app.molecule.example second.molecule.example
+        line: 127.0.0.1 app.molecule.example second.molecule.example unknown.molecule.example

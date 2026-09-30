@@ -113,6 +113,8 @@
         that:
           - __nginx_test_response.content == 'host=app.molecule.example;proto=http;upgrade=;proxy='
           - __nginx_test_response.x_test_identity == '127.0.0.1;127.0.0.1;'
+          - __nginx_test_response.x_test_forwarded_host == 'app.molecule.example'
+          - __nginx_test_response.x_test_forwarded_port == '8080'
           - "'x_test_connection' not in __nginx_test_response"
           - "'x_test_forwarded_ssl' not in __nginx_test_response"
           - "'x_test_forwarded_scheme' not in __nginx_test_response"
@@ -200,7 +202,7 @@
       ansible.builtin.assert:
         quiet: true
         that:
-          - __nginx_test_concurrency.results[0].stdout_lines | sort == ['200', '503']
+          - __nginx_test_concurrency.results[0].stdout_lines | sort == ['200', '429']
           - __nginx_test_concurrency.results[1].stdout_lines == ['200', '200']
 
     - name: NGINX | Verify concurrency allowance is released after completion
@@ -245,20 +247,23 @@
         that:
           - __nginx_test_rates.stdout_lines == ['200', '429', '200', '200']
 
-    - name: NGINX | Read rate-limit rejection log
+    - name: NGINX | Read rate and concurrency rejection log
       become: true
       become_user: root
       ansible.builtin.slurp:
         src: /var/log/nginx/error.log
       register: __nginx_test_rate_log
 
-    - name: NGINX | Assert rate-limit rejections use warning severity
+    - name: NGINX | Assert rate and concurrency rejections use warning severity
       ansible.builtin.assert:
         quiet: true
         that:
           - >-
             (__nginx_test_rate_log.content | b64decode)
             is search('\[warn\].*limiting requests.*zone "login"')
+          - >-
+            (__nginx_test_rate_log.content | b64decode)
+            is search('\[warn\].*limiting connections.*zone "per_client"')
 
     - name: NGINX | Verify known TLS host
       become: true

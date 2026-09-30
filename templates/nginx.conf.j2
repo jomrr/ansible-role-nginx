@@ -52,6 +52,8 @@ http {
     limit_req_zone {{ __nginx_zone.key | to_json }} zone={{ __nginx_zone.name }}:{{ __nginx_zone.size }} rate={{ __nginx_zone.rate }};
 {% endfor %}
 
+    limit_conn_log_level {{ nginx_limit_conn_log_level }};
+    limit_conn_status {{ nginx_limit_conn_status }};
 {% for __nginx_zone in nginx_limit_conn_zones %}
     limit_conn_zone {{ __nginx_zone.key | to_json }} zone={{ __nginx_zone.name }}:{{ __nginx_zone.size }};
 {% endfor %}

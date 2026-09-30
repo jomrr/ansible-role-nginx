@@ -32,6 +32,9 @@ provisioner:
           Host: "app.molecule.example"
           Connection: "upgrade"
           X-Forwarded-For: "192.0.2.50"
+          X-Forwarded-Proto: "https"
+          X-Forwarded-Host: "evil.example"
+          X-Forwarded-Port: "1"
           X-Real-IP: "192.0.2.50"
           Forwarded: "for=192.0.2.50"
           Proxy: "attacker.invalid"
@@ -75,6 +78,8 @@ provisioner:
                       add_header Content-Security-Policy "default-src 'self'";
                       add_header X-Test-Identity "$$http_x_forwarded_for;$$http_x_real_ip;$$http_forwarded";
                       add_header X-Test-Connection $$http_connection;
+                      add_header X-Test-Forwarded-Host $$http_x_forwarded_host;
+                      add_header X-Test-Forwarded-Port $$http_x_forwarded_port;
                       add_header X-Test-Forwarded-Ssl $$http_x_forwarded_ssl;
                       add_header X-Test-Forwarded-Scheme $$http_x_forwarded_scheme;
                       add_header X-Test-Forwarded-Prefix $$http_x_forwarded_prefix;

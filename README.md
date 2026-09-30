@@ -349,6 +349,30 @@ nginx_limit_req_zones:
     rate: 20r/s
 ```
 
+### `nginx_limit_conn_log_level`
+
+Type: `str`. Required: `false`.
+
+Sets the log level for requests rejected by concurrency limiting.
+
+Default:
+
+```yaml
+nginx_limit_conn_log_level: warn
+```
+
+### `nginx_limit_conn_status`
+
+Type: `int`. Required: `false`.
+
+Sets the HTTP status returned when a concurrency limit rejects a request.
+
+Default:
+
+```yaml
+nginx_limit_conn_status: 429
+```
+
 ### `nginx_limit_conn_zones`
 
 Type: `list`. Required: `false`.
@@ -663,11 +687,13 @@ configuration is applied.
   source deliberately; rate limiting does not replace application
   authentication.
 - Limiting concurrent active requests prevents one client from occupying too
-  many backend slots at once, complementing request-rate limits. HTTP/2 and
-  HTTP/3 streams each consume an allowance; long-lived WebSockets and users
-  sharing a NAT address can compete for it. The limit does not cover idle
-  connections or requests whose headers are incomplete, so request-header
-  timeouts remain necessary.
+  many backend slots at once, complementing request-rate limits. Reporting both
+  kinds of limit as 429 distinguishes client quota exhaustion from a service
+  failure; warning-level logging records abuse without classifying every
+  rejected request as an internal error. HTTP/2 and HTTP/3 streams each consume
+  an allowance; long-lived WebSockets and users sharing a NAT address can
+  compete for it. The limit does not cover idle connections or requests whose
+  headers are incomplete, so request-header timeouts remain necessary.
 - Host, TLS and upstream context in access logs helps distinguish targeted
   vhosts, transport failures and backend incidents. Recording service lifecycle
   events helps correlate interruptions with reloads and restarts. Logs can
@@ -761,9 +787,9 @@ configuration is applied.
   configuration.
 - nginx_limit_conn_zones declares shared concurrency counters; a custom list
   replaces the defaults and [] declares none. Activate them with limit_conn in
-  the selected server or location. Native limit_conn_status and
-  limit_conn_log_level retain nginx's defaults of 503 and error unless
-  overridden. The per_client zone is shared by all routes that use it; isolate
+  the selected server or location. nginx_limit_conn_status and
+  nginx_limit_conn_log_level default to 429 and warn, matching request-rate
+  limiting. The per_client zone is shared by all routes that use it; isolate
   keys or zone names for independent quotas. Key or size changes require a new
   zone name and matching references for graceful reload. The Vaultwarden token
   route allows ten concurrent requests per client IP; choose this allowance for
