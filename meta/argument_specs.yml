@@ -47,7 +47,8 @@ argument_specs:
       nginx_http2:
         type: bool
         default: true
-        description: Enables inherited HTTP/2 support for client connections.
+        description: Enables inherited HTTP/2 over TLS and disables h2c on managed HTTP
+          endpoints.
       nginx_http3:
         type: bool
         default: false
@@ -185,10 +186,25 @@ argument_specs:
         type: str
         default: 60s
         description: Limits idle time between reads from an upstream.
+      nginx_proxy_drop_headers:
+        type: list
+        elements: str
+        default:
+          - X-Forwarded-Ssl
+          - X-Forwarded-Scheme
+          - X-Forwarded-Prefix
+          - X-Original-URL
+          - X-Rewrite-URL
+          - True-Client-IP
+          - X-Client-IP
+          - CF-Connecting-IP
+          - X-Cluster-Client-IP
+        description: Removes additional client-supplied identity and routing headers before
+          proxying; Forwarded and Proxy are always removed.
       nginx_proxy_websockets:
         type: bool
         default: false
-        description: Enables WebSocket upgrade forwarding as a role-wide policy.
+        description: Allows only WebSocket protocol upgrades as a role-wide policy.
       nginx_proxy_ssl_trusted_certificate:
         type: path
         default: ''

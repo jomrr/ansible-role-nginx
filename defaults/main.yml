@@ -23,7 +23,7 @@ nginx_listen:
     port: 443
     protocol: https
 
-# Enables inherited HTTP/2 support for client connections.
+# Enables inherited HTTP/2 over TLS and disables h2c on managed HTTP endpoints.
 nginx_http2: true
 
 # Enables QUIC address validation and default-deny UDP listeners for HTTPS endpoints; native vhosts opt in separately.
@@ -109,7 +109,19 @@ nginx_proxy_send_timeout: 60s
 # Limits idle time between reads from an upstream.
 nginx_proxy_read_timeout: 60s
 
-# Enables WebSocket upgrade forwarding as a role-wide policy.
+# Removes additional client-supplied identity and routing headers before proxying; Forwarded and Proxy are always removed.
+nginx_proxy_drop_headers:
+  - X-Forwarded-Ssl
+  - X-Forwarded-Scheme
+  - X-Forwarded-Prefix
+  - X-Original-URL
+  - X-Rewrite-URL
+  - True-Client-IP
+  - X-Client-IP
+  - CF-Connecting-IP
+  - X-Cluster-Client-IP
+
+# Allows only WebSocket protocol upgrades as a role-wide policy.
 nginx_proxy_websockets: false
 
 # Selects the HTTPS upstream CA bundle; an empty value uses the platform trust store.
@@ -141,12 +153,17 @@ nginx_vhosts: []
 # WebSockets share the main backend port; public admin access is disabled.
 # With nginx_proxy_websockets enabled below, the role emits this once in http:
 #   map $http_upgrade $connection_upgrade {
-#       default upgrade;
-#       '' "";
+#       websocket upgrade;
+#       default '';
+#   }
+#   map $http_upgrade $__nginx_upgrade {
+#       websocket websocket;
+#       default '';
 #   }
 #   proxy_http_version 1.1;
-#   proxy_set_header Upgrade $http_upgrade;
+#   proxy_set_header Upgrade $__nginx_upgrade;
 #   proxy_set_header Connection $connection_upgrade;
+# Only the websocket token is accepted, case-insensitively; other Upgrade values are removed.
 # The empty Connection value avoids forcing close on ordinary upstream requests.
 # nginx_proxy_websockets: true
 # # Optional HTTP/3: enable together with both marked vhost directives and open UDP/443.

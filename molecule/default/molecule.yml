@@ -25,6 +25,22 @@ provisioner:
   inventory:
     group_vars:
       all:
+        __nginx_test_spoofed_headers:
+          Host: "app.molecule.example"
+          Connection: "upgrade"
+          X-Forwarded-For: "192.0.2.50"
+          X-Real-IP: "192.0.2.50"
+          Forwarded: "for=192.0.2.50"
+          Proxy: "attacker.invalid"
+          X-Forwarded-Ssl: "on"
+          X-Forwarded-Scheme: "https"
+          X-Forwarded-Prefix: "/injected"
+          X-Original-URL: "/admin"
+          X-Rewrite-URL: "/admin"
+          True-Client-IP: "192.0.2.50"
+          X-Client-IP: "192.0.2.50"
+          CF-Connecting-IP: "192.0.2.50"
+          X-Cluster-Client-IP: "192.0.2.50"
         nginx_worker_processes: "1"
         nginx_sebooleans:
           httpd_can_network_connect: true
@@ -45,6 +61,16 @@ provisioner:
                       add_header X-XSS-Protection "1; mode=block";
                       add_header Content-Security-Policy "default-src 'self'";
                       add_header X-Test-Identity "$$http_x_forwarded_for;$$http_x_real_ip;$$http_forwarded";
+                      add_header X-Test-Connection $$http_connection;
+                      add_header X-Test-Forwarded-Ssl $$http_x_forwarded_ssl;
+                      add_header X-Test-Forwarded-Scheme $$http_x_forwarded_scheme;
+                      add_header X-Test-Forwarded-Prefix $$http_x_forwarded_prefix;
+                      add_header X-Test-Original-URL $$http_x_original_url;
+                      add_header X-Test-Rewrite-URL $$http_x_rewrite_url;
+                      add_header X-Test-True-Client-IP $$http_true_client_ip;
+                      add_header X-Test-Client-IP $$http_x_client_ip;
+                      add_header X-Test-CF-Connecting-IP $$http_cf_connecting_ip;
+                      add_header X-Test-Cluster-Client-IP $$http_x_cluster_client_ip;
                       return 200 "host=$$http_host;proto=$$http_x_forwarded_proto;upgrade=$$http_upgrade;proxy=$$http_proxy";
                   }
               }

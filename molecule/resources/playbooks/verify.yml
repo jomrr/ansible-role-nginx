@@ -43,6 +43,45 @@
           - "'x-frame-options: DENY' in __nginx_test_http2.stdout"
           - "'alt-svc:' not in __nginx_test_http2.stdout | lower"
 
+    - name: NGINX | Probe cleartext HTTP/2 for known and unknown hosts
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --http2-prior-knowledge
+          - --noproxy
+          - '*'
+          - --max-time
+          - '5'
+          - --silent
+          - --show-error
+          - --header
+          - 'Host: {{ __nginx_test_host }}'
+          - --output
+          - /dev/null
+          - --write-out
+          - '%{http_version}'
+          - http://127.0.0.1:8080/
+      changed_when: false
+      failed_when: false
+      loop:
+        - app.molecule.example
+        - unknown.example
+      loop_control:
+        loop_var: __nginx_test_host
+      register: __nginx_test_h2c
+
+    - name: NGINX | Assert cleartext HTTP/2 is rejected without a timeout
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - __nginx_test_probe.rc != 0
+          - __nginx_test_probe.rc != 28
+          - __nginx_test_probe.stdout != '2'
+      loop: '{{ __nginx_test_h2c.results }}'
+      loop_control:
+        loop_var: __nginx_test_probe
+        label: '{{ __nginx_test_probe.__nginx_test_host }}'
+
     - name: NGINX | Verify unknown HTTP host is denied
       ansible.builtin.uri:
         use_proxy: false
@@ -55,13 +94,7 @@
       ansible.builtin.uri:
         use_proxy: false
         url: http://127.0.0.1:8080{{ __nginx_test_path }}
-        headers:
-          Host: app.molecule.example
-          X-Forwarded-For: 192.0.2.50
-          X-Real-IP: 192.0.2.50
-          Forwarded: for=192.0.2.50
-          Upgrade: websocket
-          Proxy: attacker.invalid
+        headers: "{{ __nginx_test_spoofed_headers | combine({'Upgrade': 'websocket'}) }}"
         return_content: true
       loop:
         - /
@@ -79,6 +112,16 @@
         that:
           - __nginx_test_response.content == 'host=app.molecule.example;proto=http;upgrade=;proxy='
           - __nginx_test_response.x_test_identity == '127.0.0.1;127.0.0.1;'
+          - "'x_test_connection' not in __nginx_test_response"
+          - "'x_test_forwarded_ssl' not in __nginx_test_response"
+          - "'x_test_forwarded_scheme' not in __nginx_test_response"
+          - "'x_test_forwarded_prefix' not in __nginx_test_response"
+          - "'x_test_original_url' not in __nginx_test_response"
+          - "'x_test_rewrite_url' not in __nginx_test_response"
+          - "'x_test_true_client_ip' not in __nginx_test_response"
+          - "'x_test_client_ip' not in __nginx_test_response"
+          - "'x_test_cf_connecting_ip' not in __nginx_test_response"
+          - "'x_test_cluster_client_ip' not in __nginx_test_response"
           - __nginx_test_response.x_content_type_options == 'nosniff'
           - __nginx_test_response.referrer_policy == 'strict-origin-when-cross-origin'
           - __nginx_test_response.x_frame_options == 'DENY'

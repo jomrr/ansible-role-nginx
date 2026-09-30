@@ -107,7 +107,7 @@ nginx_listen:
 
 Type: `bool`. Required: `false`.
 
-Enables inherited HTTP/2 support for client connections.
+Enables inherited HTTP/2 over TLS and disables h2c on managed HTTP endpoints.
 
 Default:
 
@@ -395,11 +395,33 @@ Default:
 nginx_proxy_read_timeout: 60s
 ```
 
+### `nginx_proxy_drop_headers`
+
+Type: `list`. Required: `false`.
+
+Removes additional client-supplied identity and routing headers before proxying;
+Forwarded and Proxy are always removed.
+
+Default:
+
+```yaml
+nginx_proxy_drop_headers:
+  - X-Forwarded-Ssl
+  - X-Forwarded-Scheme
+  - X-Forwarded-Prefix
+  - X-Original-URL
+  - X-Rewrite-URL
+  - True-Client-IP
+  - X-Client-IP
+  - CF-Connecting-IP
+  - X-Cluster-Client-IP
+```
+
 ### `nginx_proxy_websockets`
 
 Type: `bool`. Required: `false`.
 
-Enables WebSocket upgrade forwarding as a role-wide policy.
+Allows only WebSocket protocol upgrades as a role-wide policy.
 
 Default:
 
@@ -518,8 +540,19 @@ configuration is applied.
 - Replacing client-supplied forwarding headers prevents forged client identities
   from corrupting audit trails, IP-based access decisions and rate limits.
   Removing the Proxy request header prevents httpoxy-style proxy injection.
-  Backends must accept identity headers only from this proxy; real-IP rewriting
-  must trust only explicitly selected upstream proxies.
+  Removing known alternative identity and routing headers prevents those aliases
+  from bypassing the canonical proxy values. No finite removal list covers every
+  application-specific header: backends must trust only agreed headers from this
+  proxy. Real-IP rewriting must trust only explicitly selected upstream proxies.
+- Restricting protocol upgrades to WebSocket prevents clients from asking a
+  supporting backend to open an unrelated protocol tunnel, such as h2c, whose
+  subsequent traffic bypasses nginx HTTP request processing and header
+  sanitation. The backend still owns WebSocket handshake validation,
+  authentication and message authorization.
+- Disabling cleartext HTTP/2 on managed HTTP endpoints avoids exposing the
+  HTTP/2 parser and stream machinery on ports used only for denial or HTTPS
+  redirects. HTTP/2 over TLS remains available; this reduces unnecessary
+  protocol exposure, not application access.
 - Verifying the certificate chain and hostname of HTTPS backends prevents an
   intercepted or misdirected connection from silently reaching an impostor.
   Disabling upstream TLS session reuse prevents a session validated under one
@@ -603,10 +636,22 @@ configuration is applied.
   Named HTTPS upstream groups need proxy_ssl_name set to the certificate
   hostname; custom CAs can be selected through
   nginx_proxy_ssl_trusted_certificate.
-- HTTP/2 is inherited by native vhosts when nginx_http2 is enabled; backend
-  proxy connections continue to use HTTP/1.1. WebSocket upgrades require
-  nginx_proxy_websockets. Disabling HTTP/2 omits the global directive; native
-  overrides remain possible.
+- When nginx_http2 is enabled, HTTPS vhosts inherit HTTP/2 and managed HTTP
+  default servers disable h2c for every vhost sharing their socket. A native
+  legacy listen directive with the http2 parameter can override that socket
+  policy and must be avoided. Disabling nginx_http2 emits no HTTP/2 directives;
+  native overrides remain possible. Backend proxy connections use HTTP/1.1.
+- WebSocket upgrades require nginx_proxy_websockets. Only a single websocket
+  token, matched case-insensitively, is forwarded as Upgrade websocket with
+  Connection upgrade. Other values, protocol lists and absent Upgrade headers
+  leave both fields unset, preserving ordinary upstream keepalive behavior.
+- nginx_proxy_drop_headers selects additional request headers to remove. A
+  custom list replaces the defaults; [] removes none of these additional
+  headers. Forwarded and Proxy are always removed, and the canonical Host,
+  X-Real-IP and X-Forwarded-* values set by the role retain their existing
+  handling. A local proxy_set_header replaces the entire inherited directive
+  set; repeat the complete required proxy policy when overriding it, including
+  any removal rules.
 - HTTP/3 needs nginx_http3 enabled globally, a matching listen address:port quic
   in each application vhost, and reachable UDP through firewalls and load
   balancers. The role sets reuseport once per managed QUIC endpoint; omit it
@@ -649,11 +694,11 @@ configuration is applied.
   Removing an entry removes its configuration on the next run. All declared
   blocks are embedded in the main file.
 - Native blocks are rendered in list order inside http and may contain upstream
-  and map directives. Do not redefine the role-owned connection_upgrade map when
-  WebSockets are enabled. Use absolute paths for native includes, certificates,
-  and other file references so nginx -t checks the same files at runtime. No
-  separate TLS or proxy include is needed: application servers inherit the
-  http-level settings automatically.
+  and map directives. Do not redefine the role-owned connection_upgrade and
+  __nginx_upgrade maps when WebSockets are enabled. Use absolute paths for
+  native includes, certificates, and other file references so nginx -t checks
+  the same files at runtime. No separate TLS or proxy include is needed:
+  application servers inherit the http-level settings automatically.
 - The role does not add location blocks for assets, dotfiles, favicon.ico or
   robots.txt; application routes stay with the backend. Native application
   vhosts must declare explicit server_name and listen directives without
@@ -969,6 +1014,8 @@ nginx_vhosts:
 
 ## References
 
+- [nginx WebSocket tunneling](https://nginx.org/en/docs/http/websocket.html)
+- [nginx map matching](https://nginx.org/en/docs/http/ngx_http_map_module.html#map)
 - [nginx HTTP/2](https://nginx.org/en/docs/http/ngx_http_v2_module.html)
 - [nginx HTTP/3](https://nginx.org/en/docs/http/ngx_http_v3_module.html)
 - [nginx proxy directives and header inheritance](https://nginx.org/en/docs/http/ngx_http_proxy_module.html)
