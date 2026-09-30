@@ -40,8 +40,10 @@ The complete candidate is validated before replacing `/etc/nginx/nginx.conf`.
 
 ## Requirements
 
-- nginx 1.19.4 or newer with the HTTP SSL module and a TLS 1.3-capable library
+- nginx 1.25.1 or newer with the HTTP SSL module and a TLS 1.3-capable library
   is required.
+- The HTTP/2 module is required by default; enabling HTTP/3 additionally
+  requires the HTTP/3 module.
 - Application TLS certificates and private keys must already exist on the target
   before enabling a TLS vhost.
 
@@ -55,6 +57,8 @@ collections:
     version: '>=12.0.0'
   - name: community.crypto
     version: '>=2.0.0'
+  - name: containers.podman
+    version: '>=1.20.0'
 ```
 
 ## Role Variables
@@ -100,6 +104,31 @@ nginx_listen:
   - address: 0.0.0.0
     port: 443
     protocol: https
+```
+
+### `nginx_http2`
+
+Type: `bool`. Required: `false`.
+
+Enables inherited HTTP/2 support for client connections.
+
+Default:
+
+```yaml
+nginx_http2: true
+```
+
+### `nginx_http3`
+
+Type: `bool`. Required: `false`.
+
+Enables QUIC address validation and default-deny UDP listeners for HTTPS
+endpoints; native vhosts opt in separately.
+
+Default:
+
+```yaml
+nginx_http3: false
 ```
 
 ### `nginx_worker_processes`
@@ -498,6 +527,29 @@ configuration is applied.
   suites; TLS 1.3 suites and automatic curve selection follow the platform TLS
   library. Configure protocols globally because handshake selection starts in
   the default server for each listener.
+- `nginx_http2: true` enables HTTP/2 globally using the modern http2 directive;
+  native vhosts inherit it. Set nginx_http2 to false to omit this directive and
+  use HTTP/1.1 unless a native vhost enables HTTP/2 itself. Client protocol
+  negotiation is independent of the HTTP/1.1 proxy connection to the backend,
+  including WebSocket upgrades.
+- `nginx_http3: false` leaves HTTP/3 disabled in the managed baseline and emits
+  no HTTP/3-specific directives. Enabling it adds a default-deny QUIC listener
+  to every HTTPS endpoint in nginx_listen and enables quic_retry for address
+  validation. Unknown QUIC SNI is rejected without a fallback certificate. TLS
+  1.3 must remain enabled; 0-RTT stays off.
+- HTTP/3 application vhosts must also declare a matching listen address:port
+  quic and advertise their external UDP port with Alt-Svc. The role sets
+  reuseport once per managed QUIC endpoint; omit it from application listen
+  directives sharing that socket. Add Alt-Svc alongside the vhost's complete
+  response-header policy, never globally for hosts without a QUIC application
+  listener. To disable HTTP/3, remove the native QUIC listeners and Alt-Svc
+  headers together with the global setting.
+- HTTP/3 requires reachable UDP through firewalls and load balancers, normally
+  UDP/443 alongside TCP/443. The role installs distribution packages without
+  adding repositories or compiling nginx. The checked latest openSUSE Leap and
+  Tumbleweed packages include HTTP/2 but not HTTP/3; they remain supported with
+  HTTP/3 off. An explicitly requested feature unsupported by the installed build
+  fails native validation instead of silently falling back.
 - TLS early data (0-RTT), session tickets, OCSP stapling and nginx compression
   are off; the shared TLS session cache remains enabled. Backend response
   compression is not disabled by this setting. WebSockets require
@@ -677,6 +729,10 @@ The 525 MiB body limit accommodates attachments; align application limits and
 storage capacity.
 Response buffering is off to avoid temporary response files; request
 buffering remains on.
+HTTP/2 is inherited from the global default. For optional HTTP/3, uncomment
+nginx_http3 and both marked QUIC/Alt-Svc directives together; UDP/443 must
+be reachable and nginx must include the HTTP/3 module. Keep these three
+settings in sync when disabling HTTP/3 too.
 See the [Vaultwarden proxy
 examples](https://github.com/dani-garcia/vaultwarden/wiki/Proxy-examples)
 and [hardening
@@ -684,6 +740,8 @@ guide](https://github.com/dani-garcia/vaultwarden/wiki/Hardening-Guide).
 
 ```yaml
 nginx_proxy_websockets: true
+# Optional HTTP/3: enable together with the marked vhost directives.
+# nginx_http3: true
 nginx_sebooleans:
   httpd_can_network_connect: true
 nginx_vhosts:
@@ -697,6 +755,8 @@ nginx_vhosts:
       server {
           listen 443 ssl;
           server_name vaultwarden.example.com;
+          # Optional HTTP/3:
+          # listen 443 quic;
           ssl_certificate /etc/acme/vaultwarden.example.com/fullchain.pem;
           ssl_certificate_key /etc/acme/vaultwarden.example.com/key.pem;
           client_max_body_size 525m;
@@ -704,6 +764,8 @@ nginx_vhosts:
           # Preserve backend headers and their route-specific exceptions.
           proxy_hide_header X-Powered-By;
           add_header Strict-Transport-Security "max-age=31536000" always;
+          # Optional HTTP/3:
+          # add_header Alt-Svc 'h3=":443"; ma=86400' always;
           location ~ ^/admin(?:/|$) { return 404; }
           location ~ ^/\.(?!well-known(?:/|$)) { return 404; }
           location = /identity/connect/token {
@@ -900,6 +962,8 @@ nginx_vhosts:
 
 ## References
 
+- [nginx HTTP/2](https://nginx.org/en/docs/http/ngx_http_v2_module.html)
+- [nginx HTTP/3](https://nginx.org/en/docs/http/ngx_http_v3_module.html)
 - [nginx proxy directives and header inheritance](https://nginx.org/en/docs/http/ngx_http_proxy_module.html)
 - [nginx TLS and handshake rejection](https://nginx.org/en/docs/http/ngx_http_ssl_module.html)
 - [nginx response header inheritance](https://nginx.org/en/docs/http/ngx_http_headers_module.html)
@@ -916,4 +980,4 @@ nginx_vhosts:
 This project is licensed under the MIT License.
 See [LICENSE](LICENSE) for the full license text.
 
-Copyright (c) 2024 Jonas Mauer.
+Copyright (c) 2024-2026 Jonas Mauer.

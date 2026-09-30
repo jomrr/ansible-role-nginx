@@ -44,6 +44,15 @@ argument_specs:
             choices:
               - http
               - https
+      nginx_http2:
+        type: bool
+        default: true
+        description: Enables inherited HTTP/2 support for client connections.
+      nginx_http3:
+        type: bool
+        default: false
+        description: Enables QUIC address validation and default-deny UDP listeners for
+          HTTPS endpoints; native vhosts opt in separately.
       nginx_worker_processes:
         type: str
         default: auto

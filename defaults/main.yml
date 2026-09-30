@@ -23,6 +23,12 @@ nginx_listen:
     port: 443
     protocol: https
 
+# Enables inherited HTTP/2 support for client connections.
+nginx_http2: true
+
+# Enables QUIC address validation and default-deny UDP listeners for HTTPS endpoints; native vhosts opt in separately.
+nginx_http3: false
+
 # Sets the number of workers or uses automatic CPU detection.
 nginx_worker_processes: auto
 
@@ -128,7 +134,7 @@ nginx_ciphers:
 
 # Defines named native nginx blocks embedded in the http context.
 nginx_vhosts: []
-# Example: complete Vaultwarden vhost inheriting the global TLS 1.3 and proxy baseline.
+# Example: complete Vaultwarden vhost inheriting the global HTTP/2, TLS 1.3 and proxy baseline.
 # Requires the existing certificate/key below and Vaultwarden on 127.0.0.1:8000.
 # Vaultwarden must use DOMAIN=https://vaultwarden.example.com and trust only this proxy.
 # HSTS is emitted by nginx; the backend owns its route-specific security headers.
@@ -143,6 +149,8 @@ nginx_vhosts: []
 #   proxy_set_header Connection $connection_upgrade;
 # The empty Connection value avoids forcing close on ordinary upstream requests.
 # nginx_proxy_websockets: true
+# # Optional HTTP/3: enable together with both marked vhost directives and open UDP/443.
+# # nginx_http3: true
 # nginx_sebooleans:
 #   httpd_can_network_connect: true
 # nginx_vhosts:
@@ -156,6 +164,8 @@ nginx_vhosts: []
 #       server {
 #           listen 443 ssl;
 #           server_name vaultwarden.example.com;
+#           # Optional HTTP/3:
+#           # listen 443 quic;
 #           ssl_certificate /etc/acme/vaultwarden.example.com/fullchain.pem;
 #           ssl_certificate_key /etc/acme/vaultwarden.example.com/key.pem;
 #           client_max_body_size 525m;
@@ -163,6 +173,8 @@ nginx_vhosts: []
 #           # Preserve backend headers and their route-specific exceptions.
 #           proxy_hide_header X-Powered-By;
 #           add_header Strict-Transport-Security "max-age=31536000" always;
+#           # Optional HTTP/3:
+#           # add_header Alt-Svc 'h3=":443"; ma=86400' always;
 #           location ~ ^/admin(?:/|$) { return 404; }
 #           location ~ ^/\.(?!well-known(?:/|$)) { return 404; }
 #           location = /identity/connect/token {

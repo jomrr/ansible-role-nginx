@@ -108,10 +108,197 @@
         that:
           - "'TLSv1.2' in __nginx_test_legacy_tls.stderr"
 
+- name: NGINX | Enable HTTP/3 and disable HTTP/2 on existing listeners
+  hosts: all
+  gather_facts: true
+  vars:
+    nginx_http2: false
+    nginx_http3: "{{ ansible_facts.os_family != 'Suse' }}"
+    nginx_vhosts:
+      - name: protocol-fixture
+        config: |-
+          {% if nginx_http3 %}
+          error_log /var/log/nginx/quic-test.log info;
+          {% endif %}
+          server {
+              listen 127.0.0.1:18081;
+              server_name backend.molecule.example;
+              location / {
+                  add_header X-Powered-By fixture;
+                  add_header Content-Security-Policy "default-src 'self'";
+                  add_header Referrer-Policy same-origin;
+                  add_header X-Content-Type-Options nosniff;
+                  add_header X-Frame-Options SAMEORIGIN;
+                  return 200 "backend=$server_protocol;host=$http_host";
+              }
+          }
+          {% for __nginx_test_name in ['app.molecule.example', 'second.molecule.example'] %}
+          server {
+              listen 8443 ssl;
+          {% if nginx_http3 %}
+              listen 8443 quic;
+          {% endif %}
+              server_name {{ __nginx_test_name }};
+              ssl_certificate /etc/nginx-test/cert.pem;
+              ssl_certificate_key /etc/nginx-test/key.pem;
+              proxy_hide_header X-Powered-By;
+              add_header Strict-Transport-Security "max-age=31536000" always;
+          {% if nginx_http3 %}
+              add_header Alt-Svc 'h3=":8443"; ma=86400' always;
+          {% endif %}
+              location / { proxy_pass http://127.0.0.1:18081; }
+          }
+          {% endfor %}
+  roles:
+    - role: "{{ lookup('ansible.builtin.env', 'MOLECULE_PROJECT_DIRECTORY') }}"
+  post_tasks:
+    - name: NGINX | Negotiate TCP fallback after disabling HTTP/2
+      become: true
+      become_user: root
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --http2
+          - --cacert
+          - /etc/nginx-test/cert.pem
+          - --noproxy
+          - '*'
+          - --resolve
+          - app.molecule.example:8443:127.0.0.1
+          - --max-time
+          - '5'
+          - --silent
+          - --show-error
+          - --dump-header
+          - '-'
+          - --output
+          - /dev/null
+          - --write-out
+          - '%{http_version}'
+          - https://app.molecule.example:8443/
+      changed_when: false
+      register: __nginx_test_tcp
+
+    - name: NGINX | Assert TCP fallback and opt-in HTTP/3 advertisement
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - __nginx_test_tcp.stdout_lines[-1] == '1.1'
+          - "('alt-svc: h3=\":8443\"; ma=86400' in __nginx_test_tcp.stdout | lower) == nginx_http3"
+          - "'strict-transport-security: max-age=31536000' in __nginx_test_tcp.stdout | lower"
+          - "'referrer-policy: same-origin' in __nginx_test_tcp.stdout | lower"
+
+    - name: NGINX | Verify HTTP/3 with an isolated client
+      when: nginx_http3
+      block:
+        - name: NGINX | Start the HTTP/3 client in the target network namespace
+          delegate_to: localhost
+          containers.podman.podman_container:
+            name: '{{ inventory_hostname }}-http3-client'
+            image: docker.io/jomrr/molecule-fedora:latest
+            entrypoint: sleep
+            command:
+              - infinity
+            network:
+              - 'container:{{ inventory_hostname }}'
+            state: started
+
+        - name: NGINX | Negotiate HTTP/3 for both virtual hosts on the shared QUIC socket
+          delegate_to: localhost
+          containers.podman.podman_container_exec:
+            name: '{{ inventory_hostname }}-http3-client'
+            argv:
+              - curl
+              - --http3-only
+              - --insecure
+              - --noproxy
+              - '*'
+              - --resolve
+              - '{{ __nginx_test_name }}:8443:127.0.0.1'
+              - --max-time
+              - '10'
+              - --silent
+              - --show-error
+              - --dump-header
+              - '-'
+              - --write-out
+              - '\nhttp_version=%{http_version}\n'
+              - 'https://{{ __nginx_test_name }}:8443/'
+          changed_when: false
+          loop:
+            - app.molecule.example
+            - second.molecule.example
+          loop_control:
+            loop_var: __nginx_test_name
+          register: __nginx_test_quic
+
+        - name: NGINX | Assert QUIC routing and preserved security headers
+          ansible.builtin.assert:
+            quiet: true
+            that:
+              - "'http_version=3' in __nginx_test_response.stdout"
+              - "'backend=HTTP/1.1;host=' ~ __nginx_test_response.__nginx_test_name in __nginx_test_response.stdout"
+              - "'alt-svc: h3=\":8443\"; ma=86400' in __nginx_test_response.stdout | lower"
+              - "'strict-transport-security: max-age=31536000' in __nginx_test_response.stdout | lower"
+              - "'referrer-policy: same-origin' in __nginx_test_response.stdout | lower"
+              - "'x-content-type-options: nosniff' in __nginx_test_response.stdout | lower"
+              - "'x-frame-options: sameorigin' in __nginx_test_response.stdout | lower"
+              - "'content-security-policy:' in __nginx_test_response.stdout | lower"
+              - "'x-powered-by:' not in __nginx_test_response.stdout | lower"
+          loop: '{{ __nginx_test_quic.results }}'
+          loop_control:
+            loop_var: __nginx_test_response
+            label: '{{ __nginx_test_response.__nginx_test_name }}'
+
+        - name: NGINX | Probe unknown SNI through the QUIC default listener
+          delegate_to: localhost
+          containers.podman.podman_container_exec:
+            name: '{{ inventory_hostname }}-http3-client'
+            argv:
+              - curl
+              - --http3-only
+              - --insecure
+              - --noproxy
+              - '*'
+              - --resolve
+              - unknown.molecule.example:8443:127.0.0.1
+              - --max-time
+              - '10'
+              - --silent
+              - --show-error
+              - https://unknown.molecule.example:8443/
+          changed_when: false
+          failed_when: false
+          register: __nginx_test_unknown_quic
+
+        - name: NGINX | Read the QUIC handshake rejection log
+          become: true
+          become_user: root
+          ansible.builtin.slurp:
+            src: /var/log/nginx/quic-test.log
+          register: __nginx_test_quic_log
+
+        - name: NGINX | Assert unknown QUIC SNI is rejected without an HTTP response or timeout
+          ansible.builtin.assert:
+            quiet: true
+            that:
+              - __nginx_test_unknown_quic.rc != 0
+              - __nginx_test_unknown_quic.rc != 28
+              - __nginx_test_unknown_quic.stdout == ''
+              - "'handshake rejected while handling frames' in __nginx_test_quic_log.content | b64decode"
+
+      always:
+        - name: NGINX | Remove the HTTP/3 test client
+          delegate_to: localhost
+          containers.podman.podman_container:
+            name: '{{ inventory_hostname }}-http3-client'
+            state: absent
+
 - name: NGINX | Remove existing vhosts
   hosts: all
   gather_facts: true
   vars:
+    nginx_http3: false
     nginx_vhosts: []
     nginx_resolvers: []
     nginx_limit_req_zones: []
@@ -131,3 +318,11 @@
         - removed.molecule.example
       loop_control:
         loop_var: __nginx_test_host
+
+    - name: NGINX | Wait for the QUIC listener to close after disabling HTTP/3
+      ansible.builtin.slurp:
+        src: /proc/net/udp
+      register: __nginx_test_udp
+      until: __nginx_test_udp.content | b64decode is not search('(?m)^\s*\d+:\s+[0-9A-F]+:20FB\s')
+      retries: 10
+      delay: 1

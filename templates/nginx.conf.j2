@@ -29,6 +29,12 @@ http {
     client_body_temp_path /var/lib/nginx/tmp/client;
     proxy_temp_path /var/lib/nginx/tmp/proxy;
     gzip off;
+{% if nginx_http2 %}
+    http2 on;
+{% endif %}
+{% if nginx_http3 %}
+    quic_retry on;
+{% endif %}
 
 {% if nginx_resolvers %}
     resolver {{ nginx_resolvers | join(' ') }}{% if nginx_resolver_valid %} valid={{ nginx_resolver_valid }}{% endif %};
@@ -94,6 +100,9 @@ http {
 {% for __nginx_listener in nginx_listen %}
     server {
         listen {{ __nginx_listener.address | default('0.0.0.0') }}:{{ __nginx_listener.port }}{% if __nginx_listener.protocol | default('http') == 'https' %} ssl{% endif %} default_server;
+{% if nginx_http3 and __nginx_listener.protocol | default('http') == 'https' %}
+        listen {{ __nginx_listener.address | default('0.0.0.0') }}:{{ __nginx_listener.port }} quic reuseport default_server;
+{% endif %}
         server_name _;
 {% if __nginx_listener.protocol | default('http') == 'https' %}
         ssl_reject_handshake on;

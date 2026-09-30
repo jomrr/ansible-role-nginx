@@ -104,6 +104,7 @@
         subject_alt_name:
           - DNS:backend.molecule.example
           - DNS:app.molecule.example
+          - DNS:second.molecule.example
         basic_constraints:
           - CA:TRUE
         basic_constraints_critical: true
