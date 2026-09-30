@@ -21,7 +21,8 @@ The complete candidate is validated before replacing `/etc/nginx/nginx.conf`.
 ### Managed
 
 - nginx and CA certificate packages
-- Complete nginx main configuration and declared native vhosts
+- Complete nginx main configuration and declared native vhosts, including
+  application-specific security policies
 - Private temporary directories for request and response buffering
 - An inaccessible default document root and configurable edge-owned security
   headers
@@ -35,8 +36,6 @@ The complete candidate is validated before replacing `/etc/nginx/nginx.conf`.
 - Application services, authentication, firewall, and SELinux ports or file
   contexts
 - Distribution include directories and dynamic modules
-- Application-specific CSP, HSTS, CORS, cookie policy, and selection of
-  rate-limited routes
 
 ## Requirements
 
@@ -57,8 +56,6 @@ collections:
     version: '>=12.0.0'
   - name: community.crypto
     version: '>=2.0.0'
-  - name: containers.podman
-    version: '>=1.20.0'
 ```
 
 ## Role Variables
@@ -508,127 +505,137 @@ configuration is applied.
 
 ## Security Notes
 
-- Unknown HTTP hosts return 404; unknown TLS SNI is rejected during the
-  handshake without a fallback certificate.
-- Every application listener must have an equivalent address and port in
-  `nginx_listen`. An address-specific application listener needs an
-  address-specific default-deny listener too. IPv6 is explicit, for example
-  address '[::]'; the defaults bind IPv4 only.
-- The edge overwrites X-Forwarded-For and X-Real-IP with the connecting peer,
-  replaces forwarded host/protocol/port, and removes incoming Forwarded and
-  Proxy headers. Backends must trust only this proxy and its documented headers.
-  Trusted load balancers and real-IP rewriting require explicit native
-  configuration and restricted trust networks.
-- HTTPS upstream certificates are verified against the platform CA bundle with
-  SNI enabled. For named upstream groups, set `proxy_ssl_name` to the
-  certificate hostname. Custom CAs use `nginx_proxy_ssl_trusted_certificate`.
-- TLS 1.3 is the default for clients and HTTPS upstreams. Set `nginx_protocols:
-  [TLSv1.2, TLSv1.3]` for explicit compatibility. TLS 1.2 then uses ECDHE AEAD
-  suites; TLS 1.3 suites and automatic curve selection follow the platform TLS
-  library. Configure protocols globally because handshake selection starts in
-  the default server for each listener.
-- `nginx_http2: true` enables HTTP/2 globally using the modern http2 directive;
-  native vhosts inherit it. Set nginx_http2 to false to omit this directive and
-  use HTTP/1.1 unless a native vhost enables HTTP/2 itself. Client protocol
-  negotiation is independent of the HTTP/1.1 proxy connection to the backend,
-  including WebSocket upgrades.
-- `nginx_http3: false` leaves HTTP/3 disabled in the managed baseline and emits
-  no HTTP/3-specific directives. Enabling it adds a default-deny QUIC listener
-  to every HTTPS endpoint in nginx_listen and enables quic_retry for address
-  validation. Unknown QUIC SNI is rejected without a fallback certificate. TLS
-  1.3 must remain enabled; 0-RTT stays off.
-- HTTP/3 application vhosts must also declare a matching listen address:port
-  quic and advertise their external UDP port with Alt-Svc. The role sets
-  reuseport once per managed QUIC endpoint; omit it from application listen
-  directives sharing that socket. Add Alt-Svc alongside the vhost's complete
-  response-header policy, never globally for hosts without a QUIC application
-  listener. To disable HTTP/3, remove the native QUIC listeners and Alt-Svc
-  headers together with the global setting.
-- HTTP/3 requires reachable UDP through firewalls and load balancers, normally
-  UDP/443 alongside TCP/443. The role installs distribution packages without
-  adding repositories or compiling nginx. The checked latest openSUSE Leap and
-  Tumbleweed packages include HTTP/2 but not HTTP/3; they remain supported with
-  HTTP/3 off. An explicitly requested feature unsupported by the installed build
-  fails native validation instead of silently falling back.
-- TLS early data (0-RTT), session tickets, OCSP stapling and nginx compression
-  are off; the shared TLS session cache remains enabled. Backend response
-  compression is not disabled by this setting. WebSockets require
-  `nginx_proxy_websockets: true`.
-- Request and response buffering default to on, request bodies to 1 MiB, and
-  header/body idle timeouts to 10 seconds. Tune upload limits, streaming, and
-  read timeouts explicitly per application.
-- Native vhost content is trusted administrator configuration and can override
-  inherited safeguards. A local proxy_set_header replaces the entire inherited
-  header set; repeat all required proxy headers when overriding it. A local
-  add_header likewise replaces inherited response headers on the supported
-  baseline versions. A vhost adding HSTS must also select its response-header
-  policy. Most examples repeat the four-header baseline; Vaultwarden preserves
-  the backend headers and its route-specific exceptions. Local proxy_hide_header
-  directives also replace inherited hide rules. To retain edge ownership, repeat
-  X-Powered-By and every header from nginx_security_headers when overriding
-  those rules.
-- `nginx_security_headers` owns nosniff, strict-origin-when-cross-origin,
-  X-Frame-Options DENY and X-XSS-Protection 0 by default. Matching backend
-  headers are suppressed to avoid duplicates; other backend headers, including
-  CSP, pass through. A custom mapping replaces this policy. Its entries use
-  `always`, including for error responses. Same-origin framing can be enabled in
-  a vhost with a complete local response-header set.
-- The inherited root is `/var/lib/nginx/empty`, owned by root with mode 0700;
-  nginx workers cannot read files beneath it. Directory listings are explicitly
-  off. A forgotten content handler cannot expose the distribution's document
-  root. Explicit native root or alias directives deliberately override this
-  boundary and require their own access controls.
-- Content-Security-Policy and HSTS need application and domain decisions. Do not
-  enable includeSubDomains or preload globally. Preserve application CSP instead
-  of adding a generic permissive policy. A CSP frame-ancestors directive can
-  supersede X-Frame-Options. Application CSP must therefore enforce the intended
-  framing policy too. X-XSS-Protection 0 disables the obsolete browser filter.
-- Keep HSTS on HTTPS vhosts with reliable certificate renewal. The examples use
-  one year without includeSubDomains or preload. Their HSTS header is owned by
-  the edge; disable duplicate HSTS emission in the backend. Permissions-Policy,
-  COOP and CORP depend on application features, OAuth popups, embedding and
-  cross-origin resources. Do not globally deny camera/microphone for Nextcloud
-  Talk or cross-origin opener access needed by login integrations.
-- `nginx_limit_req_zones` prepares login at 10r/m and api_limit at 20r/s, each
-  with 10 MiB of shared memory and a client-IP key. No request is limited until
-  a native server or location activates a zone with limit_req. Rejections use
-  `nginx_limit_req_status: 429` and `nginx_limit_req_log_level: warn` globally.
-  Burst and delay behavior belong to the selected route. Size is zone memory,
-  not an upload limit.
-- A shared zone with `$binary_remote_addr` shares a client's allowance across
-  all routes and vhosts using that zone. Use separate zones or a key such as
-  `$server_name|$binary_remote_addr` for independent per-vhost allowances. A
-  custom nginx_limit_req_zones list replaces the defaults; [] declares no
-  role-managed zones. Each item requires name, key, size and rate. Do not
-  declare the same zone again in native configuration. Changing a deployed
-  zone's key requires a new zone name and matching limit_req references for a
-  graceful reload.
-- Choose rates against real traffic and shared client IPs; the login examples
-  are starting points, not universal rates. The edge must see the real client
-  IP; configure only explicitly trusted proxies when another proxy precedes
-  nginx. Authentication and method restrictions belong to the application or
-  selected routes; WebDAV requires more than GET and POST.
-- `nginx_resolvers` is empty by default: no public DNS service is selected and
-  fixed-IP backends need no resolver. Configure trusted, reachable DNS servers
-  for runtime hostname resolution. Addresses can include ports and bracketed
-  IPv6 literals. DNS replies retain their TTL unless nginx_resolver_valid
-  explicitly overrides it; nginx_resolver_timeout defaults to 2s. Setting
-  resolver alone does not make a static proxy_pass hostname refresh dynamically.
-- Variable-based proxy_pass can use the runtime resolver on the supported nginx
-  baseline. For named dynamic upstream groups, the server resolve parameter
-  requires nginx OSS 1.27.3 or newer and a shared upstream zone. Keep the
-  upstream hostname administrator-controlled, enable certificate verification
-  and use the correct proxy_ssl_name for HTTPS.
-- Configuration and backup files can contain credentials; the managed
-  configuration is root-only and rendering output is redacted. Protect
-  controller inventory secrets with Vault and restrict access to nginx
-  access/error logs and configuration backups.
-- `nginx_sebooleans` defaults to an empty mapping. On SELinux hosts, explicitly
-  allow the required backend connections, for example with
-  `httpd_can_network_connect: true`; SELinux enforcement is never changed.
+- Default-deny listeners prevent requests with unexpected hostnames from
+  reaching an application selected by listener order. Rejecting unknown TLS and
+  QUIC SNI also avoids presenting an unrelated application's certificate. This
+  protection requires a matching default listener for every application address
+  and port; it does not replace authentication.
+- An unreadable, root-owned document root prevents an omitted proxy handler from
+  exposing packaged web content or local files. Disabling directory listings
+  adds protection if a readable directory is introduced deliberately. Native
+  root and alias directives establish new file-access boundaries that the
+  administrator must secure separately.
+- Replacing client-supplied forwarding headers prevents forged client identities
+  from corrupting audit trails, IP-based access decisions and rate limits.
+  Removing the Proxy request header prevents httpoxy-style proxy injection.
+  Backends must accept identity headers only from this proxy; real-IP rewriting
+  must trust only explicitly selected upstream proxies.
+- Verifying the certificate chain and hostname of HTTPS backends prevents an
+  intercepted or misdirected connection from silently reaching an impostor.
+  Disabling upstream TLS session reuse prevents a session validated under one
+  location's CA policy from carrying that trust into another location. New
+  backend connections therefore incur a full TLS handshake.
+- TLS 1.3 reduces exposure to legacy protocol and cipher constructions. The
+  optional TLS 1.2 policy retains ephemeral key exchange and authenticated
+  encryption, preserving forward secrecy and integrity instead of enabling
+  obsolete compatibility suites. These protocol choices still require maintained
+  nginx and TLS-library packages.
+- Disabling TLS early data prevents replayable requests from reaching
+  authentication or state-changing application endpoints. Limiting
+  session-resumption lifetime bounds the reuse window for stolen resumption
+  secrets; keeping resumption state server-side avoids dependence on the
+  rotation of stateless ticket-encryption keys.
+- HTTP/3 remains opt-in to avoid exposing an unnecessary UDP service. QUIC
+  address validation makes clients demonstrate source-address reachability
+  before nginx proceeds with the handshake, reducing spoofed-source
+  amplification and resource-exhaustion opportunities. It does not authenticate
+  clients or replace network-level denial-of-service protection.
+- Disabling nginx response compression reduces compression side channels when
+  responses combine secrets with attacker-controlled input. Compression already
+  performed by a backend can preserve that exposure and must be assessed in the
+  application as well.
+- Body-size limits and idle timeouts constrain memory, disk and connection
+  exhaustion by large or slow requests. Buffering helps decouple backend
+  processing from slow clients. Disabling response buffering avoids nginx
+  response spill files, but increases backend exposure to slow readers; neither
+  mode replaces application limits or secret-safe logging.
+- MIME sniffing restrictions reduce content-type confusion, framing restrictions
+  mitigate clickjacking, and referrer restrictions reduce leakage of sensitive
+  URL paths to other origins. Disabling obsolete browser XSS filters avoids
+  their unsafe legacy behavior. Suppressing software-identification headers
+  reduces passive fingerprinting, but does not conceal an unpatched service from
+  active probes.
+- A single owner for each response-header policy avoids conflicting edge and
+  backend instructions. Applying the policy to error responses prevents failures
+  from dropping browser protections. Native add_header, proxy_set_header and
+  proxy_hide_header directives can replace their inherited directive sets;
+  review the complete effective policy whenever an application overrides them.
+- Application-specific CSP can limit script execution and framing without
+  permitting broad sources that weaken XSS protection. Preserve the
+  application's policy and verify that its frame-ancestors restriction matches
+  the intended embedding boundary, because browsers can prefer it over
+  X-Frame-Options. Generic permissive CSP is not a substitute for
+  application-aware restrictions.
+- HSTS makes returning browsers use HTTPS and refuse certificate errors,
+  reducing downgrade opportunities after a successful HTTPS visit. Extending it
+  to subdomains or preload affects services beyond one vhost and can make them
+  inaccessible if HTTPS or renewal fails. COOP, CORP and Permissions-Policy can
+  restrict cross-origin interaction and browser capabilities, but must preserve
+  required login, embedding, camera and microphone workflows.
+- Rate limits can slow brute-force attempts and protect expensive endpoints from
+  request floods, but declaring a zone alone enforces nothing: the relevant
+  routes must activate it. IP-based quotas group users behind NAT and may span
+  several vhosts using one zone. Choose the quota scope and trusted client-IP
+  source deliberately; rate limiting does not replace application
+  authentication.
+- Trusted resolvers reduce exposure to forged DNS answers and avoid sending
+  internal backend names to an arbitrary public DNS service. Keep dynamic
+  backend hostnames under administrator control so request input cannot turn the
+  proxy into an SSRF path. HTTPS hostname and certificate verification remain
+  necessary because resolver trust alone does not authenticate a backend.
+- Restrictive configuration permissions and redacted rendering output reduce
+  disclosure of credentials embedded in native vhosts. Inventory, backups and
+  logs are separate disclosure paths; protect inventory secrets with Vault and
+  restrict access to retained files. Native vhost text is privileged
+  administrator input: a syntactically valid override can still weaken the
+  security policy.
+- Keeping SELinux enforcement active limits what a compromised nginx worker can
+  do beyond its service permissions. Grant outbound-network booleans only when
+  required by the application; broad network permission also broadens the
+  worker's access to reachable services and should be paired with appropriate
+  network restrictions.
 
 ## Operational Notes
 
+- Every application listen address and port must have an equivalent entry in
+  nginx_listen, including address-specific and IPv6 listeners. Configure TLS
+  protocols globally because handshake selection begins in the default server.
+  Named HTTPS upstream groups need proxy_ssl_name set to the certificate
+  hostname; custom CAs can be selected through
+  nginx_proxy_ssl_trusted_certificate.
+- HTTP/2 is inherited by native vhosts when nginx_http2 is enabled; backend
+  proxy connections continue to use HTTP/1.1. WebSocket upgrades require
+  nginx_proxy_websockets. Disabling HTTP/2 omits the global directive; native
+  overrides remain possible.
+- HTTP/3 needs nginx_http3 enabled globally, a matching listen address:port quic
+  in each application vhost, and reachable UDP through firewalls and load
+  balancers. The role sets reuseport once per managed QUIC endpoint; omit it
+  from application listeners. Advertise the actual external UDP port with
+  Alt-Svc only on participating vhosts, alongside their complete response-header
+  policy. Remove native QUIC listeners and Alt-Svc together when disabling
+  HTTP/3. TLS 1.3 remains required.
+- Distribution packages are used without additional repositories or nginx
+  builds. The checked openSUSE Leap and Tumbleweed packages provide HTTP/2 but
+  lack HTTP/3; use HTTP/3 only with a supporting package. Unsupported requested
+  features fail native validation.
+- A local response-header policy replaces inherited add_header directives. Most
+  application examples repeat the baseline headers; Vaultwarden instead
+  preserves backend headers and route-specific exceptions. Local
+  proxy_hide_header overrides must repeat X-Powered-By and any security headers
+  that the edge continues to own. Ensure that HSTS is emitted by only one layer.
+- Rate-limit zones become active through limit_req in the selected server or
+  location. A custom zone list replaces the defaults; an empty list declares no
+  zones. Zone size is shared-memory capacity, not an upload limit. Use distinct
+  zones or a key such as $server_name|$binary_remote_addr for independent
+  per-vhost quotas. Changing a deployed key requires a new zone name and
+  references for graceful reload. Do not redeclare role-managed zones in native
+  configuration.
+- Setting nginx_resolvers does not make a static proxy_pass hostname refresh
+  dynamically. Variable-based proxy_pass supports runtime resolution on the
+  role's baseline; named upstream server resolve requires nginx OSS 1.27.3 or
+  newer and a shared upstream zone. Resolver entries support ports and bracketed
+  IPv6 addresses; nginx_resolver_valid overrides DNS TTL only when explicitly
+  configured.
 - Application examples below are host/group variable fragments used with the
   baseline playbook. Combine their nginx_vhosts entries into one list when
   hosting multiple applications; enable WebSockets if any application requires

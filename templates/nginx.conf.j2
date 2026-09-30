@@ -65,6 +65,7 @@ http {
     proxy_read_timeout {{ nginx_proxy_read_timeout }};
     proxy_ssl_server_name on;
     proxy_ssl_verify on;
+    proxy_ssl_session_reuse off;
     proxy_ssl_verify_depth {{ nginx_proxy_ssl_verify_depth }};
     proxy_ssl_trusted_certificate {{ nginx_proxy_ssl_trusted_certificate | default(__nginx_ca_bundle, true) }};
     proxy_ssl_protocols {{ nginx_protocols | join(' ') }};

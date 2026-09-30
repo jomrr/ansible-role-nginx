@@ -40,6 +40,31 @@
           - dnsmasq
         state: present
 
+    - name: NGINX | Prepare the direct HTTP/3 test client
+      when: ansible_facts.os_family != 'Suse'
+      block:
+        - name: NGINX | Install Python tooling for the HTTP/3 test client
+          become: true
+          become_user: root
+          ansible.builtin.package:
+            name:
+              - python3-packaging
+              - python3-pip
+              - >-
+                {{ 'python3-venv' if ansible_facts.os_family == 'Debian'
+                   else 'python-pip-wheel' if ansible_facts.distribution == 'Fedora'
+                   else 'python3-pip-wheel' }}
+            state: present
+
+        - name: NGINX | Install the HTTP/3 client in an isolated test environment
+          become: true
+          become_user: root
+          ansible.builtin.pip:
+            name: curl-cffi==0.15.0
+            virtualenv: /opt/nginx-test-http3
+            virtualenv_command: python3 -m venv
+            extra_args: '--only-binary=:all:'
+
     - name: NGINX | Create fixture directory
       become: true
       become_user: root
@@ -130,4 +155,4 @@
         path: /etc/hosts
         # Podman bind-mounts this file, so atomic rename is unavailable.
         unsafe_writes: true
-        line: 127.0.0.1 app.molecule.example
+        line: 127.0.0.1 app.molecule.example second.molecule.example

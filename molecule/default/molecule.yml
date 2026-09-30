@@ -25,6 +25,7 @@ provisioner:
   inventory:
     group_vars:
       all:
+        nginx_worker_processes: "1"
         nginx_sebooleans:
           httpd_can_network_connect: true
         nginx_resolvers:
