@@ -1,6 +1,6 @@
 ---
 # role: nginx
-# file: molecule/default/molecule.yml
+# file: molecule/dev/molecule.yml
 
 dependency:
   name: "galaxy"
@@ -12,8 +12,11 @@ provisioner:
     defaults:
       forks: 8
       interpreter_python: "auto_silent"
-      callbacks_enabled: "ansible.posix.profile_tasks,ansible.posix.timer"
+      callbacks_enabled: "ansible.builtin.default"
       callback_result_format: "yaml"
+      display_ok_hosts: false
+      display_skipped_hosts: false
+      show_task_path_on_failure: true
     ssh_connection:
       pipelining: true
   log: true
@@ -106,10 +109,35 @@ scenario:
     - "side_effect"
     - "cleanup"
     - "destroy"
-  name: "default"
+  name: "dev"
 platforms:
-  - name: "nginx"
-    image: "docker.io/${uns:-jomrr}/molecule-${img:-fedora}:${tag:-latest}"
+  - name: "almalinux-latest-nginx"
+    image: "docker.io/jomrr/molecule-almalinux:latest"
+    pre_build_image: true
+    override_command: false
+    systemd: "true"
+  - name: "debian-latest-nginx"
+    image: "docker.io/jomrr/molecule-debian:latest"
+    pre_build_image: true
+    override_command: false
+    systemd: "true"
+  - name: "fedora-latest-nginx"
+    image: "docker.io/jomrr/molecule-fedora:latest"
+    pre_build_image: true
+    override_command: false
+    systemd: "true"
+  - name: "opensuse-leap-latest-nginx"
+    image: "docker.io/jomrr/molecule-opensuse-leap:latest"
+    pre_build_image: true
+    override_command: false
+    systemd: "true"
+  - name: "opensuse-tumbleweed-latest-nginx"
+    image: "docker.io/jomrr/molecule-opensuse-tumbleweed:latest"
+    pre_build_image: true
+    override_command: false
+    systemd: "true"
+  - name: "ubuntu-latest-nginx"
+    image: "docker.io/jomrr/molecule-ubuntu:latest"
     pre_build_image: true
     override_command: false
     systemd: "true"

@@ -1,37 +1,132 @@
-# role: jomrr.nginx
+---
+# role: nginx
 # file: molecule/resources/playbooks/prepare.yml
 
-- name: "PLAYBOOK | Prepare | nginx"
+- name: Molecule | prepare | nginx
   hosts: all
-  become: true
   gather_facts: true
   tasks:
-    - name: "Update apk cache and installed packages"
-      community.general.apk:
-        available: true
-        update_cache: true
-        upgrade: true
-      when: ansible_pkg_mgr == "apk"
-    - name: "Update apt cache and installed packages"  # noqa: package-latest
+
+    - name: NGINX | Refresh APT package metadata
+      become: true
+      become_user: root
       ansible.builtin.apt:
-        force_apt_get: true
-        state: latest
         update_cache: true
-      when: ansible_pkg_mgr == "apt"
-    - name: "Update dnf cache and installed packages"  # noqa: package-latest
+      when: ansible_facts.pkg_mgr == 'apt'
+
+    - name: NGINX | Refresh DNF package metadata
+      become: true
+      become_user: root
       ansible.builtin.dnf:
-        name: "*"
-        state: latest
         update_cache: true
-      when: ansible_pkg_mgr == "dnf"
-    - name: "Update pacman cache and installed packages"
-      community.general.pacman:
-        update_cache: true
-        upgrade: true
-      when: ansible_pkg_mgr == "pacman"
-    - name: "Update zypper cache and installed packages"  # noqa: package-latest
-      community.general.zypper:
-        name: "*"
-        state: latest
-        update_cache: true
-      when: ansible_pkg_mgr == "zypper"
+      when: ansible_facts.pkg_mgr in ['dnf', 'dnf5']
+
+    - name: NGINX | Refresh Zypper package metadata
+      become: true
+      become_user: root
+      community.general.zypper_repository:
+        repo: '*'
+        runrefresh: true
+      when: ansible_facts.pkg_mgr == 'zypper'
+
+    - name: NGINX | Install fixture dependencies
+      become: true
+      become_user: root
+      ansible.builtin.package:
+        name:
+          - python3-cryptography
+          - openssl
+          - curl
+          - dnsmasq
+        state: present
+
+    - name: NGINX | Create fixture directory
+      become: true
+      become_user: root
+      ansible.builtin.file:
+        path: /etc/nginx-test
+        state: directory
+        mode: '0700'
+
+    - name: NGINX | Configure isolated fixture DNS
+      become: true
+      become_user: root
+      ansible.builtin.copy:
+        dest: /etc/nginx-test/dnsmasq.conf
+        mode: '0600'
+        content: |
+          port=1053
+          listen-address=127.0.0.1
+          bind-interfaces
+          no-resolv
+          no-hosts
+          local=/molecule.example/
+          host-record=dynamic.molecule.example,127.0.0.1
+          local-ttl=60
+
+    - name: NGINX | Install fixture DNS service
+      become: true
+      become_user: root
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/nginx-test-dns.service
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Isolated nginx resolver fixture
+          [Service]
+          ExecStart=/usr/sbin/dnsmasq --keep-in-foreground --user=root --conf-file=/etc/nginx-test/dnsmasq.conf
+
+    - name: NGINX | Start fixture DNS
+      become: true
+      become_user: root
+      ansible.builtin.systemd_service:
+        name: nginx-test-dns
+        daemon_reload: true
+        state: started
+
+    - name: NGINX | Create fixture private key
+      become: true
+      become_user: root
+      community.crypto.openssl_privatekey:
+        path: /etc/nginx-test/key.pem
+        type: ECC
+        curve: secp256r1
+        mode: '0600'
+      no_log: true
+
+    - name: NGINX | Create fixture CSR
+      become: true
+      become_user: root
+      community.crypto.openssl_csr:
+        path: /etc/nginx-test/request.pem
+        privatekey_path: /etc/nginx-test/key.pem
+        common_name: backend.molecule.example
+        subject_alt_name:
+          - DNS:backend.molecule.example
+          - DNS:app.molecule.example
+        basic_constraints:
+          - CA:TRUE
+        basic_constraints_critical: true
+        key_usage:
+          - digitalSignature
+          - keyCertSign
+        mode: '0600'
+
+    - name: NGINX | Create fixture certificate
+      become: true
+      become_user: root
+      community.crypto.x509_certificate:
+        path: /etc/nginx-test/cert.pem
+        privatekey_path: /etc/nginx-test/key.pem
+        csr_path: /etc/nginx-test/request.pem
+        provider: selfsigned
+        mode: '0644'
+
+    - name: NGINX | Resolve fixture hostname
+      become: true
+      become_user: root
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        # Podman bind-mounts this file, so atomic rename is unavailable.
+        unsafe_writes: true
+        line: 127.0.0.1 app.molecule.example

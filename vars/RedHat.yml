@@ -1,0 +1,11 @@
+---
+# role: nginx
+# file: vars/RedHat.yml
+
+__nginx_user: nginx
+__nginx_group: nginx
+__nginx_ca_bundle: /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+__nginx_selinux_packages:
+  - python3-libselinux
+  - python3-libsemanage
+__nginx_validate_config: /usr/sbin/nginx -t -c %s

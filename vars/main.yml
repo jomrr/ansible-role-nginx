@@ -1,7 +1,0 @@
----
-
-nginx_packages:
-  - "nginx"
-  - "openssl"
-
-nginx_dhparam_file: /etc/nginx/dhparam.pem

@@ -1,0 +1,133 @@
+---
+# role: nginx
+# file: molecule/resources/playbooks/side_effect.yml
+
+- name: NGINX | Enable optional compatibility settings
+  hosts: all
+  gather_facts: true
+  vars:
+    nginx_proxy_websockets: true
+    nginx_resolver_valid: 1s
+    nginx_limit_req_status: 503
+    nginx_limit_req_zones:
+      - name: login
+        key: $binary_remote_addr
+        size: 10m
+        rate: 1r/m
+    nginx_protocols:
+      - TLSv1.2
+      - TLSv1.3
+    nginx_security_headers:
+      X-Content-Type-Options: nosniff
+      Referrer-Policy: strict-origin-when-cross-origin
+      X-Frame-Options: SAMEORIGIN
+      X-XSS-Protection: '0'
+  roles:
+    - role: "{{ lookup('ansible.builtin.env', 'MOLECULE_PROJECT_DIRECTORY') }}"
+  post_tasks:
+    - name: NGINX | Read upgraded proxy request at backend
+      ansible.builtin.uri:
+        use_proxy: false
+        url: http://127.0.0.1:8080/resolved
+        headers:
+          Host: app.molecule.example
+          Upgrade: websocket
+          Connection: upgrade
+        return_content: true
+      register: __nginx_test_upgrade
+
+    - name: NGINX | Assert upgrade header reaches backend after reload
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - "'upgrade=websocket;' in __nginx_test_upgrade.content"
+          - __nginx_test_upgrade.x_frame_options == 'SAMEORIGIN'
+
+    - name: NGINX | Probe limited and unrestricted routes
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --silent
+          - --show-error
+          - --noproxy
+          - '*'
+          - --interface
+          - 127.0.0.2
+          - --max-time
+          - '5'
+          - --header
+          - 'Host: app.molecule.example'
+          - --write-out
+          - '%{http_code}\n'
+          - --output
+          - /dev/null
+          - http://127.0.0.1:8080/limited
+          - --output
+          - /dev/null
+          - http://127.0.0.1:8080/limited
+          - --output
+          - /dev/null
+          - http://127.0.0.1:8080/
+          - --output
+          - /dev/null
+          - http://127.0.0.1:8080/
+      changed_when: false
+      register: __nginx_test_rates
+
+    - name: NGINX | Assert overridden rate-limit status after reload
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - __nginx_test_rates.stdout_lines == ['200', '503', '200', '200']
+
+    - name: NGINX | Verify explicitly enabled TLS 1.2 after reload
+      become: true
+      become_user: root
+      ansible.builtin.command:
+        argv:
+          - openssl
+          - s_client
+          - -connect
+          - 127.0.0.1:8443
+          - -servername
+          - app.molecule.example
+          - -verify_hostname
+          - app.molecule.example
+          - -CAfile
+          - /etc/nginx-test/cert.pem
+          - -verify_return_error
+          - -brief
+          - -tls1_2
+        stdin: ''
+      changed_when: false
+      register: __nginx_test_legacy_tls
+
+    - name: NGINX | Assert TLS 1.2 negotiated with the compatibility override
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - "'TLSv1.2' in __nginx_test_legacy_tls.stderr"
+
+- name: NGINX | Remove existing vhosts
+  hosts: all
+  gather_facts: true
+  vars:
+    nginx_vhosts: []
+    nginx_resolvers: []
+    nginx_limit_req_zones: []
+  roles:
+    - role: '{{ lookup(''ansible.builtin.env'', ''MOLECULE_PROJECT_DIRECTORY'') }}'
+  post_tasks:
+
+    - name: NGINX | Verify removed hosts are denied after reload
+      ansible.builtin.uri:
+        use_proxy: false
+        url: http://127.0.0.1:8080/
+        headers:
+          Host: '{{ __nginx_test_host }}'
+        status_code: 404
+      loop:
+        - app.molecule.example
+        - removed.molecule.example
+      loop_control:
+        loop_var: __nginx_test_host

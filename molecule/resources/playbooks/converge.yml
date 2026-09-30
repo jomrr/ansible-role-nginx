@@ -1,7 +1,8 @@
-# role: jomrr.nginx
+---
+# role: nginx
 # file: molecule/resources/playbooks/converge.yml
 
-- name: "PLAYBOOK | Converge | nginx"
+- name: "Molecule | converge | nginx"
   hosts: all
   gather_facts: true
   roles:

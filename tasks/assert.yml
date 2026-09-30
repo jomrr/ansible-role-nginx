@@ -1,0 +1,22 @@
+---
+# role: nginx
+# file: tasks/assert.yml
+
+- name: NGINX | Require nonempty TLS policy and unique vhost names
+  ansible.builtin.assert:
+    that:
+      - nginx_protocols | length > 0
+      - nginx_ciphers | length > 0
+      - nginx_listen | length > 0
+      - nginx_vhosts | map(attribute='name') | unique | length == nginx_vhosts | length
+    quiet: true
+
+- name: NGINX | Validate vhost names
+  ansible.builtin.assert:
+    that:
+      - __nginx_name is match('^[A-Za-z0-9][A-Za-z0-9_.-]*\Z')
+    quiet: true
+  loop: "{{ nginx_vhosts | map(attribute='name') }}"
+  loop_control:
+    loop_var: __nginx_name
+    label: "{{ __nginx_name }}"

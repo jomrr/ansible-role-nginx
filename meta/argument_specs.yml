@@ -1,0 +1,223 @@
+---
+# role: nginx
+# file: meta/argument_specs.yml
+
+argument_specs:
+  main:
+    short_description: Manage a hardened nginx baseline and native virtual hosts
+    description:
+      - Installs nginx, validates the complete configuration before replacement, rejects
+        unknown hosts, and enables and starts the service.
+    options:
+      nginx_extra_packages:
+        type: list
+        default: []
+        description: Installs additional packages required by native vhost configuration.
+        elements: str
+      nginx_sebooleans:
+        type: dict
+        default: {}
+        description: Manages explicitly selected SELinux booleans persistently on enabled
+          hosts.
+      nginx_listen:
+        type: list
+        default:
+          - address: 0.0.0.0
+            port: 80
+            protocol: http
+          - address: 0.0.0.0
+            port: 443
+            protocol: https
+        description: Defines default-deny endpoints; application listen directives must
+          match these addresses and ports.
+        elements: dict
+        options:
+          address:
+            type: str
+            default: 0.0.0.0
+          port:
+            type: int
+            required: true
+          protocol:
+            type: str
+            default: http
+            choices:
+              - http
+              - https
+      nginx_worker_processes:
+        type: str
+        default: auto
+        description: Sets the number of workers or uses automatic CPU detection.
+      nginx_worker_connections:
+        type: int
+        default: 1024
+        description: Limits simultaneous connections per worker, including upstream connections.
+      nginx_keepalive_timeout:
+        type: str
+        default: 5 5
+        description: Sets the idle client keepalive timeout and optional advertised timeout.
+      nginx_tcp_nodelay:
+        type: str
+        default: 'on'
+        description: Enables TCP_NODELAY for responsive keepalive connections.
+        choices:
+          - 'on'
+          - 'off'
+      nginx_server_tokens:
+        type: str
+        default: 'off'
+        description: Controls disclosure of the nginx version in responses.
+        choices:
+          - 'on'
+          - 'off'
+      nginx_security_headers:
+        type: dict
+        default:
+          X-Content-Type-Options: nosniff
+          Referrer-Policy: strict-origin-when-cross-origin
+          X-Frame-Options: DENY
+          X-XSS-Protection: '0'
+        description: Sets edge-owned response headers on all statuses and suppresses matching
+          upstream headers.
+      nginx_client_max_body_size:
+        type: str
+        default: 1m
+        description: Limits request bodies; applications can explicitly override this limit.
+      nginx_client_header_timeout:
+        type: str
+        default: 10s
+        description: Limits time to read a complete request header.
+      nginx_client_body_timeout:
+        type: str
+        default: 10s
+        description: Limits idle time between reads of a request body.
+      nginx_send_timeout:
+        type: str
+        default: 30s
+        description: Limits idle time between writes to a client.
+      nginx_resolvers:
+        type: list
+        elements: str
+        default: []
+        description: Defines DNS servers for runtime name resolution; an empty list leaves
+          resolver selection unset.
+      nginx_resolver_timeout:
+        type: str
+        default: 2s
+        description: Limits the time spent resolving an upstream hostname.
+      nginx_resolver_valid:
+        type: str
+        default: ''
+        description: Overrides DNS cache validity; an empty value preserves the response
+          TTL.
+      nginx_limit_req_log_level:
+        type: str
+        default: warn
+        choices:
+          - info
+          - notice
+          - warn
+          - error
+        description: Sets the log level for requests rejected by rate limiting.
+      nginx_limit_req_status:
+        type: int
+        default: 429
+        description: Sets the HTTP status returned when a rate limit rejects a request.
+      nginx_limit_req_zones:
+        type: list
+        elements: dict
+        default:
+          - name: login
+            key: $binary_remote_addr
+            size: 10m
+            rate: 10r/m
+          - name: api_limit
+            key: $binary_remote_addr
+            size: 10m
+            rate: 20r/s
+        description: Defines shared rate-limit zones; native vhost locations activate them
+          with limit_req.
+        options:
+          name:
+            type: str
+            required: true
+          key:
+            type: str
+            required: true
+          size:
+            type: str
+            required: true
+          rate:
+            type: str
+            required: true
+      nginx_proxy_buffering:
+        type: str
+        default: 'on'
+        description: Buffers upstream responses to isolate backends from slow clients.
+        choices:
+          - 'on'
+          - 'off'
+      nginx_proxy_request_buffering:
+        type: str
+        default: 'on'
+        description: Buffers request bodies before forwarding them to a backend.
+        choices:
+          - 'on'
+          - 'off'
+      nginx_proxy_connect_timeout:
+        type: str
+        default: 5s
+        description: Limits time to establish an upstream connection.
+      nginx_proxy_send_timeout:
+        type: str
+        default: 60s
+        description: Limits idle time between writes to an upstream.
+      nginx_proxy_read_timeout:
+        type: str
+        default: 60s
+        description: Limits idle time between reads from an upstream.
+      nginx_proxy_websockets:
+        type: bool
+        default: false
+        description: Enables WebSocket upgrade forwarding as a role-wide policy.
+      nginx_proxy_ssl_trusted_certificate:
+        type: path
+        default: ''
+        description: Selects the HTTPS upstream CA bundle; an empty value uses the platform
+          trust store.
+      nginx_proxy_ssl_verify_depth:
+        type: int
+        default: 3
+        description: Sets the verification depth for HTTPS upstream certificate chains.
+      nginx_protocols:
+        type: list
+        default:
+          - TLSv1.3
+        description: Selects modern TLS protocols for clients and HTTPS upstreams.
+        elements: str
+        choices:
+          - TLSv1.2
+          - TLSv1.3
+      nginx_ciphers:
+        type: list
+        default:
+          - ECDHE-ECDSA-AES128-GCM-SHA256
+          - ECDHE-RSA-AES128-GCM-SHA256
+          - ECDHE-ECDSA-AES256-GCM-SHA384
+          - ECDHE-RSA-AES256-GCM-SHA384
+          - ECDHE-ECDSA-CHACHA20-POLY1305
+          - ECDHE-RSA-CHACHA20-POLY1305
+        description: Selects TLS 1.2 ECDHE ciphers; TLS 1.3 uses the TLS library suites.
+        elements: str
+      nginx_vhosts:
+        type: list
+        default: []
+        description: Defines named native nginx blocks embedded in the http context.
+        elements: dict
+        options:
+          name:
+            type: str
+            required: true
+          config:
+            type: str
+            required: true

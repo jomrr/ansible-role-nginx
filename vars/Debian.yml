@@ -1,0 +1,11 @@
+---
+# role: nginx
+# file: vars/Debian.yml
+
+__nginx_user: www-data
+__nginx_group: www-data
+__nginx_ca_bundle: /etc/ssl/certs/ca-certificates.crt
+__nginx_selinux_packages:
+  - python3-selinux
+  - python3-semanage
+__nginx_validate_config: /usr/sbin/nginx -t -c %s

@@ -1,65 +1,110 @@
-# main nginx configuration
-# {{ ansible_managed }}
+# Managed by ansible.
+# file: {{ template_destpath }}
 
-user                    {{ nginx_user }};
-pid                     {{ nginx_pid_file }};
-worker_processes        {{ nginx_worker_processes }};
-worker_rlimit_nofile    65535;
-
-# Load modules
-include                 {{ nginx_include_path_modules }};
+user {{ __nginx_user }} {{ __nginx_group }};
+pid /run/nginx.pid;
+worker_processes {{ nginx_worker_processes }};
+error_log /var/log/nginx/error.log warn;
 
 events {
-    multi_accept                on;
-    worker_connections          {{ nginx_worker_connections }};
+    worker_connections {{ nginx_worker_connections }};
 }
 
 http {
-    charset                     utf-8;
-    keepalive_timeout           {{ nginx_keepalive_timeout }};
-    sendfile                    on;
-    tcp_nopush                  on;
-    tcp_nodelay                 {{ nginx_tcp_nodelay }};
-    types_hash_max_size         2048;
-    types_hash_bucket_size      64;
-    client_max_body_size        16M;
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    types_hash_max_size 4096;
+    access_log /var/log/nginx/access.log combined;
 
-    # MIME
-    include                     mime.types;
-    default_type                application/octet-stream;
+    # An omitted application handler must never expose the packaged document root.
+    root /var/lib/nginx/empty;
+    autoindex off;
+    server_tokens {{ nginx_server_tokens }};
+    keepalive_timeout {{ nginx_keepalive_timeout }};
+    tcp_nodelay {{ nginx_tcp_nodelay }};
+    client_max_body_size {{ nginx_client_max_body_size }};
+    client_header_timeout {{ nginx_client_header_timeout }};
+    client_body_timeout {{ nginx_client_body_timeout }};
+    send_timeout {{ nginx_send_timeout }};
+    client_body_temp_path /var/lib/nginx/tmp/client;
+    proxy_temp_path /var/lib/nginx/tmp/proxy;
+    gzip off;
 
-    # Logging
-    access_log                  off;
-    error_log                   /var/log/nginx/error.log notice;
+{% if nginx_resolvers %}
+    resolver {{ nginx_resolvers | join(' ') }}{% if nginx_resolver_valid %} valid={{ nginx_resolver_valid }}{% endif %};
+{% endif %}
+    resolver_timeout {{ nginx_resolver_timeout }};
 
-    # Limits
-    limit_req_log_level         warn;
-    limit_req_zone              $binary_remote_addr zone=login:10m rate=10r/m;
+    limit_req_log_level {{ nginx_limit_req_log_level }};
+    limit_req_status {{ nginx_limit_req_status }};
+{% for __nginx_zone in nginx_limit_req_zones %}
+    limit_req_zone {{ __nginx_zone.key | to_json }} zone={{ __nginx_zone.name }}:{{ __nginx_zone.size }} rate={{ __nginx_zone.rate }};
+{% endfor %}
 
-    # SSL
-    ssl_session_timeout         1d;
-    ssl_session_cache           shared:SSL:10m;
-    ssl_session_tickets         off;
+    ssl_protocols {{ nginx_protocols | join(' ') }};
+    ssl_ciphers {{ nginx_ciphers | join(':') }};
+    ssl_prefer_server_ciphers off;
+    ssl_ecdh_curve auto;
+    ssl_early_data off;
+    ssl_session_cache shared:TLS:10m;
+    ssl_session_timeout 1h;
+    ssl_session_tickets off;
+    ssl_stapling off;
 
-    # Diffie-Hellman parameter for DHE ciphersuites
-    ssl_dhparam                 {{ nginx_dhparam_file }};
+    proxy_http_version 1.1;
+    proxy_buffering {{ nginx_proxy_buffering }};
+    proxy_request_buffering {{ nginx_proxy_request_buffering }};
+    proxy_connect_timeout {{ nginx_proxy_connect_timeout }};
+    proxy_send_timeout {{ nginx_proxy_send_timeout }};
+    proxy_read_timeout {{ nginx_proxy_read_timeout }};
+    proxy_ssl_server_name on;
+    proxy_ssl_verify on;
+    proxy_ssl_verify_depth {{ nginx_proxy_ssl_verify_depth }};
+    proxy_ssl_trusted_certificate {{ nginx_proxy_ssl_trusted_certificate | default(__nginx_ca_bundle, true) }};
+    proxy_ssl_protocols {{ nginx_protocols | join(' ') }};
+    proxy_ssl_ciphers {{ nginx_ciphers | join(':') }};
+    proxy_hide_header X-Powered-By;
 
-    # Mozilla Intermediate configuration
-    ssl_protocols               {{ nginx_protocols | join(' ') }};
-    ssl_ciphers                 {{ nginx_ciphers | join(':') }};
-    ssl_prefer_server_ciphers   on;
+    # The public edge owns these values; client-supplied chains are untrusted.
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Port $server_port;
+    proxy_set_header Forwarded "";
+    proxy_set_header Proxy "";
+{% if nginx_proxy_websockets %}
+    map $http_upgrade $connection_upgrade {
+        default upgrade;
+        '' '';
+    }
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+{% else %}
+    proxy_set_header Upgrade "";
+    proxy_set_header Connection "";
+{% endif %}
 
-    # OCSP Stapling
-    ssl_stapling                on;
-    ssl_stapling_verify         on;
+{% for __nginx_header, __nginx_value in nginx_security_headers.items() %}
+    proxy_hide_header {{ __nginx_header }};
+    add_header {{ __nginx_header }} {{ __nginx_value | string | to_json }} always;
+{% endfor %}
 
-    # Reverse Proxy settings
-    proxy_buffering             {{ nginx_proxy_buffering }};
-    proxy_request_buffering     {{ nginx_proxy_request_buffering }};
-    proxy_send_timeout          {{ nginx_proxy_send_timeout }};
-    proxy_read_timeout          {{ nginx_proxy_read_timeout }};
+{% for __nginx_listener in nginx_listen %}
+    server {
+        listen {{ __nginx_listener.address | default('0.0.0.0') }}:{{ __nginx_listener.port }}{% if __nginx_listener.protocol | default('http') == 'https' %} ssl{% endif %} default_server;
+        server_name _;
+{% if __nginx_listener.protocol | default('http') == 'https' %}
+        ssl_reject_handshake on;
+{% endif %}
+        return 404;
+    }
 
-    # Load configs
-    include {{ nginx_include_path_configs }};
-    include {{ nginx_include_path_sites }};
+{% endfor %}
+{% for __nginx_vhost in nginx_vhosts %}
+    # Native vhost: {{ __nginx_vhost.name }}
+{{ __nginx_vhost.config | indent(4, true) }}
+
+{% endfor %}
 }

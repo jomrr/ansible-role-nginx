@@ -1,11 +1,244 @@
-# role: jomrr.nginx
+---
+# role: nginx
 # file: molecule/resources/playbooks/verify.yml
 
-- name: "PLAYBOOK | Verify | nginx"
+- name: NGINX | Verify
   hosts: all
   gather_facts: false
   tasks:
-    - name: "Assert true"
+
+    - name: NGINX | Verify unknown HTTP host is denied
+      ansible.builtin.uri:
+        use_proxy: false
+        url: http://127.0.0.1:8080/
+        headers:
+          Host: unknown.example
+        status_code: 404
+
+    - name: NGINX | Verify proxy routes and sanitized client headers
+      ansible.builtin.uri:
+        use_proxy: false
+        url: http://127.0.0.1:8080{{ __nginx_test_path }}
+        headers:
+          Host: app.molecule.example
+          X-Forwarded-For: 192.0.2.50
+          X-Real-IP: 192.0.2.50
+          Forwarded: for=192.0.2.50
+          Upgrade: websocket
+          Proxy: attacker.invalid
+        return_content: true
+      loop:
+        - /
+        - /favicon.ico
+        - /robots.txt
+        - /asset.html
+        - /resolved
+      loop_control:
+        loop_var: __nginx_test_path
+      register: __nginx_test_responses
+
+    - name: NGINX | Assert forwarded identity and inherited security headers
       ansible.builtin.assert:
-        that: "true"
-        fail_msg: "This should never fail"
+        quiet: true
+        that:
+          - __nginx_test_response.content == 'host=app.molecule.example;proto=http;upgrade=;proxy='
+          - __nginx_test_response.x_test_identity == '127.0.0.1;127.0.0.1;'
+          - __nginx_test_response.x_content_type_options == 'nosniff'
+          - __nginx_test_response.referrer_policy == 'strict-origin-when-cross-origin'
+          - __nginx_test_response.x_frame_options == 'DENY'
+          - __nginx_test_response.x_xss_protection == '0'
+          - __nginx_test_response.content_security_policy == "default-src 'self'"
+          - __nginx_test_response.server == 'nginx'
+      loop: '{{ __nginx_test_responses.results }}'
+      loop_control:
+        loop_var: __nginx_test_response
+        label: '{{ __nginx_test_response.url }}'
+
+    - name: NGINX | Probe limited and unrestricted routes
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --silent
+          - --show-error
+          - --noproxy
+          - '*'
+          - --max-time
+          - '5'
+          - --header
+          - 'Host: app.molecule.example'
+          - --write-out
+          - '%{http_code}\n'
+          - --output
+          - /dev/null
+          - http://127.0.0.1:8080/limited
+          - --output
+          - /dev/null
+          - http://127.0.0.1:8080/limited
+          - --output
+          - /dev/null
+          - http://127.0.0.1:8080/
+          - --output
+          - /dev/null
+          - http://127.0.0.1:8080/
+      changed_when: false
+      register: __nginx_test_rates
+
+    - name: NGINX | Assert global rejection status and explicit route activation
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - __nginx_test_rates.stdout_lines == ['200', '429', '200', '200']
+
+    - name: NGINX | Read rate-limit rejection log
+      become: true
+      become_user: root
+      ansible.builtin.slurp:
+        src: /var/log/nginx/error.log
+      register: __nginx_test_rate_log
+
+    - name: NGINX | Assert rate-limit rejections use warning severity
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - >-
+            (__nginx_test_rate_log.content | b64decode)
+            is search('\[warn\].*limiting requests.*zone "login"')
+
+    - name: NGINX | Verify known TLS host
+      become: true
+      become_user: root
+      ansible.builtin.uri:
+        use_proxy: false
+        url: https://app.molecule.example:8443/
+        ca_path: /etc/nginx-test/cert.pem
+        return_content: true
+
+    - name: NGINX | Probe default TLS protocol policy
+      become: true
+      become_user: root
+      ansible.builtin.command:
+        argv:
+          - openssl
+          - s_client
+          - -connect
+          - 127.0.0.1:8443
+          - -servername
+          - app.molecule.example
+          - -verify_hostname
+          - app.molecule.example
+          - -CAfile
+          - /etc/nginx-test/cert.pem
+          - -verify_return_error
+          - -brief
+          - '{{ __nginx_test_protocol }}'
+        stdin: ''
+      loop:
+        - -tls1_3
+        - -tls1_2
+      loop_control:
+        loop_var: __nginx_test_protocol
+      changed_when: false
+      failed_when: false
+      register: __nginx_test_protocols
+
+    - name: NGINX | Assert TLS 1.3 succeeds and TLS 1.2 is rejected
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - __nginx_test_protocols.results[0].rc == 0
+          - "'TLSv1.3' in __nginx_test_protocols.results[0].stderr"
+          - __nginx_test_protocols.results[1].rc != 0
+          - "'alert protocol version' in __nginx_test_protocols.results[1].stderr"
+
+    - name: NGINX | Place a disclosure probe in the default document root
+      become: true
+      become_user: root
+      ansible.builtin.copy:
+        dest: /var/lib/nginx/empty/disclosure.txt
+        content: nginx-root-disclosure-probe
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: NGINX | Verify omitted routes cannot serve the default document root
+      ansible.builtin.uri:
+        use_proxy: false
+        url: http://127.0.0.1:8080/disclosure.txt
+        headers:
+          Host: static.molecule.example
+        status_code: 403
+        return_content: true
+      register: __nginx_test_root
+
+    - name: NGINX | Assert denial retains security headers and reveals no file content
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - "'nginx-root-disclosure-probe' not in __nginx_test_root.content"
+          - __nginx_test_root.x_content_type_options == 'nosniff'
+          - __nginx_test_root.x_frame_options == 'DENY'
+          - __nginx_test_root.x_xss_protection == '0'
+
+    - name: NGINX | Read TLS rejection for unknown SNI
+      ansible.builtin.command:
+        argv:
+          - openssl
+          - s_client
+          - -connect
+          - 127.0.0.1:8443
+          - -servername
+          - unknown.example
+        stdin: ''
+      changed_when: false
+      failed_when: false
+      register: __nginx_test_tls
+
+    - name: NGINX | Assert handshake rejection
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - __nginx_test_tls.rc != 0
+          - '''unrecognized name'' in __nginx_test_tls.stderr'
+
+    - name: NGINX | Verify trusted HTTPS upstream
+      ansible.builtin.uri:
+        use_proxy: false
+        url: http://127.0.0.1:8080/trusted
+        headers:
+          Host: app.molecule.example
+        return_content: true
+      register: __nginx_test_trusted
+
+    - name: NGINX | Assert HTTPS proxy response
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - __nginx_test_trusted.content == 'verified backend'
+
+    - name: NGINX | Reject untrusted or mismatched upstream certificates
+      ansible.builtin.uri:
+        use_proxy: false
+        url: http://127.0.0.1:8080/{{ __nginx_test_endpoint }}
+        headers:
+          Host: app.molecule.example
+        status_code: 502
+      loop:
+        - untrusted
+        - wrong-name
+      loop_control:
+        loop_var: __nginx_test_endpoint
+
+    - name: NGINX | Read service enablement
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - is-enabled
+          - nginx
+      changed_when: false
+      register: __nginx_test_enabled
+
+    - name: NGINX | Assert service is enabled
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - __nginx_test_enabled.stdout == 'enabled'

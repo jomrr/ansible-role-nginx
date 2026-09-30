@@ -1,60 +1,90 @@
 ---
-# repo: jomrr.nginx
+# role: nginx
 # file: tasks/main.yml
 
-- name: "Set os_family dependent variables"
-  ansible.builtin.include_vars: '{{ ansible_os_family | lower }}.yml'
-
-- name: "Set distribution dependent variables"
-  ansible.builtin.include_vars: "{{ item }}"
+- name: NGINX | Load platform settings
+  ansible.builtin.include_vars: "{{ lookup('ansible.builtin.first_found', __nginx_platform_files) }}"
   vars:
-    params:
+    __nginx_platform_files:
       files:
-        - "{{ ansible_distribution | lower }}-{{ ansible_distribution_major_version }}.yml"
-        - "{{ ansible_distribution | lower }}.yml"
-        - "{{ ansible_os_family | lower }}-{{ ansible_distribution_major_version }}.yml"
+        - "{{ ansible_facts.os_family }}.yml"
       paths:
-        - 'vars'
-      skip: true
-  loop: "{{ query('first_found', params, errors='ignore') }}"
+        - "{{ role_path }}/vars"
 
-- name: "Install nginx"
+- name: NGINX | Validate role inputs
+  ansible.builtin.import_tasks: assert.yml
+
+- name: NGINX | Install packages
+  become: true
+  become_user: root
   ansible.builtin.package:
-    name: "{{ nginx_packages }}"
+    name: "{{ ['nginx', 'ca-certificates'] + nginx_extra_packages }}"
     state: present
 
-- name: "Generate DH Parameters file for nginx"
+- name: NGINX | Install SELinux bindings
   become: true
-  community.crypto.openssl_dhparam:
-    path: "{{ nginx_dhparam_file }}"
-    size: 4096
+  become_user: root
+  ansible.builtin.package:
+    name: "{{ __nginx_selinux_packages }}"
+    state: present
+  when:
+    - ansible_facts.selinux.status == 'enabled'
+    - nginx_sebooleans | length > 0
 
-- name: "Generate nginx.conf"
+- name: NGINX | Manage persistent SELinux booleans
   become: true
-  ansible.builtin.template:
-    src: "nginx.conf.j2"
-    dest: "{{ nginx_conf }}"
-    owner: "root"
-    group: "{{ nginx_group }}"
-    mode: "0640"
-  notify: "Restart nginx"
+  become_user: root
+  ansible.posix.seboolean:
+    name: "{{ __nginx_boolean.key }}"
+    state: "{{ __nginx_boolean.value }}"
+    persistent: true
+  loop: "{{ nginx_sebooleans | dict2items }}"
+  loop_control:
+    loop_var: __nginx_boolean
+    label: "{{ __nginx_boolean.key }}"
+  when:
+    - ansible_facts.selinux.status == 'enabled'
+    - not ansible_check_mode
 
-- name: "Deploy vhosts"
-  ansible.builtin.copy:
-    content: "{{ item.config }}"
-    dest: "{{ nginx_sites_available_path }}/{{ item.file }}"
-    owner: "root"
-    group: "root"
-    mode: "0644"
-  loop: "{{ nginx_vhosts }}"
-  notify: "Restart nginx"
-  when: item.status == "enabled"
-
-- name: "Link to sites-enabled"
+- name: NGINX | Create private request buffering directory
+  become: true
+  become_user: root
   ansible.builtin.file:
-    src: "{{ nginx_sites_available_path }}/{{ item.file }}"
-    dest: "{{ nginx_sites_enabled_path }}/{{ item.file }}"
-    state: link
-  loop: "{{ nginx_vhosts }}"
-  notify: "Restart nginx"
-  when: ansible_os_family == "Debian" and item.status == "enabled"
+    path: /var/lib/nginx/tmp
+    state: directory
+    owner: "{{ __nginx_user }}"
+    group: "{{ __nginx_group }}"
+    mode: '0700'
+
+- name: NGINX | Create inaccessible default document root
+  become: true
+  become_user: root
+  ansible.builtin.file:
+    path: /var/lib/nginx/empty
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: NGINX | Validate and install complete configuration
+  become: true
+  become_user: root
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/nginx.conf
+    owner: root
+    group: root
+    mode: '0600'
+    backup: true
+    validate: "{{ __nginx_validate_config }}"
+  no_log: true
+  notify: reload
+
+- name: NGINX | Enable and start service
+  become: true
+  become_user: root
+  ansible.builtin.service:
+    name: nginx
+    enabled: true
+    state: started
+  when: not ansible_check_mode

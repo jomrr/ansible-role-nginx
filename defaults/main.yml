@@ -1,16 +1,123 @@
 ---
-# role: jomrr.nginx
+# role: nginx
 # file: defaults/main.yml
 
-nginx_keepalive_timeout: "5 5"
-nginx_tcp_nodelay: "on"
+# Installs additional packages required by native vhost configuration.
+nginx_extra_packages: []
+# Example: install Certbot on Debian for separately managed certificate issuance.
+# nginx_extra_packages:
+#   - certbot
 
-nginx_proxy_buffering: "off"
-nginx_proxy_request_buffering: "off"
-nginx_proxy_send_timeout: "120"
-nginx_proxy_read_timeout: "300"
+# Manages explicitly selected SELinux booleans persistently on enabled hosts.
+nginx_sebooleans: {}
+# Example: permit reverse-proxy backend connections on enforcing SELinux hosts.
+# nginx_sebooleans:
+#   httpd_can_network_connect: true
 
-# nginx cipher suites
+# Defines default-deny endpoints; application listen directives must match these addresses and ports.
+nginx_listen:
+  - address: 0.0.0.0
+    port: 80
+    protocol: http
+  - address: 0.0.0.0
+    port: 443
+    protocol: https
+
+# Sets the number of workers or uses automatic CPU detection.
+nginx_worker_processes: auto
+
+# Limits simultaneous connections per worker, including upstream connections.
+nginx_worker_connections: 1024
+
+# Sets the idle client keepalive timeout and optional advertised timeout.
+nginx_keepalive_timeout: 5 5
+
+# Enables TCP_NODELAY for responsive keepalive connections.
+# Choices: on, off
+nginx_tcp_nodelay: 'on'
+
+# Controls disclosure of the nginx version in responses.
+# Choices: on, off
+nginx_server_tokens: 'off'
+
+# Sets edge-owned response headers on all statuses and suppresses matching upstream headers.
+nginx_security_headers:
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY
+  X-XSS-Protection: '0'
+
+# Limits request bodies; applications can explicitly override this limit.
+nginx_client_max_body_size: 1m
+
+# Limits time to read a complete request header.
+nginx_client_header_timeout: 10s
+
+# Limits idle time between reads of a request body.
+nginx_client_body_timeout: 10s
+
+# Limits idle time between writes to a client.
+nginx_send_timeout: 30s
+
+# Defines DNS servers for runtime name resolution; an empty list leaves resolver selection unset.
+nginx_resolvers: []
+
+# Limits the time spent resolving an upstream hostname.
+nginx_resolver_timeout: 2s
+
+# Overrides DNS cache validity; an empty value preserves the response TTL.
+nginx_resolver_valid: ''
+
+# Sets the log level for requests rejected by rate limiting.
+# Choices: info, notice, warn, error
+nginx_limit_req_log_level: warn
+
+# Sets the HTTP status returned when a rate limit rejects a request.
+nginx_limit_req_status: 429
+
+# Defines shared rate-limit zones; native vhost locations activate them with limit_req.
+nginx_limit_req_zones:
+  - name: login
+    key: $binary_remote_addr
+    size: 10m
+    rate: 10r/m
+  - name: api_limit
+    key: $binary_remote_addr
+    size: 10m
+    rate: 20r/s
+
+# Buffers upstream responses to isolate backends from slow clients.
+# Choices: on, off
+nginx_proxy_buffering: 'on'
+
+# Buffers request bodies before forwarding them to a backend.
+# Choices: on, off
+nginx_proxy_request_buffering: 'on'
+
+# Limits time to establish an upstream connection.
+nginx_proxy_connect_timeout: 5s
+
+# Limits idle time between writes to an upstream.
+nginx_proxy_send_timeout: 60s
+
+# Limits idle time between reads from an upstream.
+nginx_proxy_read_timeout: 60s
+
+# Enables WebSocket upgrade forwarding as a role-wide policy.
+nginx_proxy_websockets: false
+
+# Selects the HTTPS upstream CA bundle; an empty value uses the platform trust store.
+nginx_proxy_ssl_trusted_certificate: ''
+
+# Sets the verification depth for HTTPS upstream certificate chains.
+nginx_proxy_ssl_verify_depth: 3
+
+# Selects modern TLS protocols for clients and HTTPS upstreams.
+# Choices: TLSv1.2, TLSv1.3
+nginx_protocols:
+  - TLSv1.3
+
+# Selects TLS 1.2 ECDHE ciphers; TLS 1.3 uses the TLS library suites.
 nginx_ciphers:
   - ECDHE-ECDSA-AES128-GCM-SHA256
   - ECDHE-RSA-AES128-GCM-SHA256
@@ -18,130 +125,56 @@ nginx_ciphers:
   - ECDHE-RSA-AES256-GCM-SHA384
   - ECDHE-ECDSA-CHACHA20-POLY1305
   - ECDHE-RSA-CHACHA20-POLY1305
-  - DHE-RSA-AES128-GCM-SHA256
-  - DHE-RSA-AES256-GCM-SHA384
 
-# nginx supported protocols
-nginx_protocols:
-  - "TLSv1.2"
-  - "TLSv1.3"
-
-# disable server tokens
-nginx_server_tokens: "off"
-
-nginx_worker_connections: 65535
-
-# number of nginx worker processes
-nginx_worker_processes: "{{ ansible_processor_vcpus | default(2) }}"
-
+# Defines named native nginx blocks embedded in the http context.
 nginx_vhosts: []
-#   - name: "example"
-#     file: "example.conf"
-#     status: "enabled" # enabled or disabled or absent
-#     config: |
+# Example: complete Vaultwarden vhost inheriting the global TLS 1.3 and proxy baseline.
+# Requires the existing certificate/key below and Vaultwarden on 127.0.0.1:8000.
+# Vaultwarden must use DOMAIN=https://vaultwarden.example.com and trust only this proxy.
+# HSTS is emitted by nginx; the backend owns its route-specific security headers.
+# WebSockets share the main backend port; public admin access is disabled.
+# With nginx_proxy_websockets enabled below, the role emits this once in http:
+#   map $http_upgrade $connection_upgrade {
+#       default upgrade;
+#       '' "";
+#   }
+#   proxy_http_version 1.1;
+#   proxy_set_header Upgrade $http_upgrade;
+#   proxy_set_header Connection $connection_upgrade;
+# The empty Connection value avoids forcing close on ordinary upstream requests.
+# nginx_proxy_websockets: true
+# nginx_sebooleans:
+#   httpd_can_network_connect: true
+# nginx_vhosts:
+#   - name: vaultwarden.example.com
+#     config: |-
 #       server {
-#         listen              443 ssl http2;
-#         server_name         example.com;
-
-#         # SSL
-#         ssl_certificate     /etc/ssl/certs/example.com.crt;
-#         ssl_certificate_key /etc/ssl/certs/example.com.key;
-
-#         # security headers
-#         add_header X-XSS-Protection          "1; mode=block" always;
-#         add_header X-Content-Type-Options    "nosniff" always;
-#         add_header Referrer-Policy           "no-referrer-when-downgrade" always;
-#         add_header Content-Security-Policy   "default-src 'self' http: https: ws: wss: data: blob: 'unsafe-inline'; frame-ancestors 'self';" always;
-#         add_header Permissions-Policy        "interest-cohort=()" always;
-#         add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
-
-#         # . files
-#         location ~ /\.(?!well-known) {
-#             deny all;
-#         }
-
-#         # security.txt
-#         location /security.txt {
-#             return 301 /.well-known/security.txt;
-#         }
-
-#         location = /.well-known/security.txt {
-#             alias ~/security.txt;
-#         }
-
-#         # restrict methods
-#         if ($request_method !~ ^(GET|POST|PUT|DELETE|CONNECT)$) {
-#             return '405';
-#         }
-
-#         # logging
-#         access_log /var/log/nginx/access.log combined buffer=512k flush=1m;
-#         error_log  /var/log/nginx/error.log notice;
-
-#         # reverse proxy
-#         location / {
-#             proxy_pass                          http://127.0.0.1:8081;
-#             proxy_set_header Host $host;
-#             proxy_http_version                  1.1;
-#             proxy_cache_bypass                  $http_upgrade;
-
-#             # Proxy SSL
-#             proxy_ssl_server_name               on;
-
-#             # Proxy headers
-#             proxy_set_header Upgrade            $http_upgrade;
-#             proxy_set_header Connection         $connection_upgrade;
-#             proxy_set_header X-Real-IP          $remote_addr;
-#             proxy_set_header Forwarded          $proxy_add_forwarded;
-#             proxy_set_header X-Forwarded-For    $proxy_add_x_forwarded_for;
-#             proxy_set_header X-Forwarded-Proto  $scheme;
-#             proxy_set_header X-Forwarded-Host   $host;
-#             proxy_set_header X-Forwarded-Port   $server_port;
-
-#             # Proxy timeouts
-#             proxy_connect_timeout               60s;
-#             proxy_send_timeout                  60s;
-#             proxy_read_timeout                  60s;
-#         }
-
-#         # favicon.ico
-#         location = /favicon.ico {
-#             log_not_found off;
-#         }
-
-#         # robots.txt
-#         location = /robots.txt {
-#             log_not_found off;
-#         }
-
-#         # Disable HTML caching
-#         location ~* \.(?:html?)$ {
-#             add_header Cache-Control "no-cache";
-#         }
+#           listen 80;
+#           server_name vaultwarden.example.com;
+#           return 308 https://vaultwarden.example.com$request_uri;
 #       }
-
-#       # subdomains redirect
 #       server {
-#           listen              443 ssl http2;
-#           server_name         *.example.com;
-
-#           # SSL
-#           ssl_certificate     /etc/ssl/certs/example.com.crt;
-#           ssl_certificate_key /etc/ssl/certs/example.com.key;
-
-#           # logging
-#           access_log          /var/log/nginx/access.log combined buffer=512k flush=1m;
-#           error_log           /var/log/nginx/error.log notice;
-#           return              301 https://example.com$request_uri;
-#       }
-
-#       # HTTP redirect
-#       server {
-#           listen      80;
-#           server_name .example.com;
-
-#           # logging
-#           access_log  /var/log/nginx/access.log combined buffer=512k flush=1m;
-#           error_log   /var/log/nginx/error.log notice;
-#           return      301 https://example.com$request_uri;
+#           listen 443 ssl;
+#           server_name vaultwarden.example.com;
+#           ssl_certificate /etc/acme/vaultwarden.example.com/fullchain.pem;
+#           ssl_certificate_key /etc/acme/vaultwarden.example.com/key.pem;
+#           client_max_body_size 525m;
+#           proxy_buffering off;
+#           # Preserve backend headers and their route-specific exceptions.
+#           proxy_hide_header X-Powered-By;
+#           add_header Strict-Transport-Security "max-age=31536000" always;
+#           location ~ ^/admin(?:/|$) { return 404; }
+#           location ~ ^/\.(?!well-known(?:/|$)) { return 404; }
+#           location = /identity/connect/token {
+#               limit_req zone=login burst=10 nodelay;
+#               proxy_pass http://127.0.0.1:8000;
+#           }
+#           location /notifications/ {
+#               access_log off;
+#               proxy_read_timeout 3600s;
+#               proxy_pass http://127.0.0.1:8000;
+#           }
+#           location / {
+#               proxy_pass http://127.0.0.1:8000;
+#           }
 #       }

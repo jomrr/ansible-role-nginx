@@ -1,9 +1,12 @@
 ---
-# role: jomrr.nginx
+# role: nginx
 # file: handlers/main.yml
 
-- name: "Restart nginx"
+- name: NGINX | Reload service
+  become: true
+  become_user: root
   ansible.builtin.service:
-    name: "nginx"
-    state: restarted
-    enabled: true
+    name: nginx
+    state: reloaded
+  listen: reload
+  when: not ansible_check_mode
