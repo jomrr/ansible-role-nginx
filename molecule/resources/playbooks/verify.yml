@@ -41,6 +41,7 @@
           - __nginx_test_http2.stdout_lines[-1] == '2'
           - "'x-content-type-options: nosniff' in __nginx_test_http2.stdout | lower"
           - "'x-frame-options: DENY' in __nginx_test_http2.stdout"
+          - "'x-permitted-cross-domain-policies: none' in __nginx_test_http2.stdout | lower"
           - "'alt-svc:' not in __nginx_test_http2.stdout | lower"
 
     - name: NGINX | Probe cleartext HTTP/2 for known and unknown hosts
@@ -126,12 +127,88 @@
           - __nginx_test_response.referrer_policy == 'strict-origin-when-cross-origin'
           - __nginx_test_response.x_frame_options == 'DENY'
           - __nginx_test_response.x_xss_protection == '0'
+          - __nginx_test_response.x_permitted_cross_domain_policies == 'none'
+          - "'x_powered_by' not in __nginx_test_response"
+          - "'x_aspnet_version' not in __nginx_test_response"
+          - "'x_aspnetmvc_version' not in __nginx_test_response"
+          - "'x_runtime' not in __nginx_test_response"
+          - "'x_generator' not in __nginx_test_response"
           - __nginx_test_response.content_security_policy == "default-src 'self'"
           - __nginx_test_response.server == 'nginx'
       loop: '{{ __nginx_test_responses.results }}'
       loop_control:
         loop_var: __nginx_test_response
         label: '{{ __nginx_test_response.url }}'
+
+    - name: NGINX | Read access log for existing HTTP and HTTPS requests
+      become: true
+      become_user: root
+      ansible.builtin.slurp:
+        src: /var/log/nginx/access.log
+      register: __nginx_test_access_log
+
+    - name: NGINX | Assert host transport timing and upstream log context
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - >-
+            __nginx_test_access_log.content | b64decode is search(
+            'host="app.molecule.example" server="app.molecule.example" tls="TLSv1.3" '
+            ~ 'cipher="TLS_[^"]+" request_time="[0-9.]+" upstream="127.0.0.1:18081"')
+          - >-
+            __nginx_test_access_log.content | b64decode is search(
+            'host="app.molecule.example" server="app.molecule.example" tls="-" '
+            ~ 'cipher="-" request_time="[0-9.]+" upstream="127.0.0.1:18081"')
+          - >-
+            'host="unknown.example" server="_"'
+            in __nginx_test_access_log.content | b64decode
+
+    - name: NGINX | Probe concurrent requests on limited and unrestricted routes
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --parallel
+          - --parallel-immediate
+          - --parallel-max
+          - '2'
+          - --http1.1
+          - --silent
+          - --show-error
+          - --noproxy
+          - '*'
+          - --max-time
+          - '15'
+          - --header
+          - 'Host: app.molecule.example'
+          - --write-out
+          - '%{http_code}\n'
+          - --output
+          - /dev/null
+          - 'http://127.0.0.1:8080/{{ __nginx_test_route }}'
+          - --output
+          - /dev/null
+          - 'http://127.0.0.1:8080/{{ __nginx_test_route }}'
+      changed_when: false
+      loop:
+        - concurrent
+        - concurrent-unlimited
+      loop_control:
+        loop_var: __nginx_test_route
+      register: __nginx_test_concurrency
+
+    - name: NGINX | Assert concurrency limits only apply to selected routes
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - __nginx_test_concurrency.results[0].stdout_lines | sort == ['200', '503']
+          - __nginx_test_concurrency.results[1].stdout_lines == ['200', '200']
+
+    - name: NGINX | Verify concurrency allowance is released after completion
+      ansible.builtin.uri:
+        use_proxy: false
+        url: http://127.0.0.1:8080/concurrent
+        headers:
+          Host: app.molecule.example
 
     - name: NGINX | Probe limited and unrestricted routes
       ansible.builtin.command:
@@ -300,6 +377,40 @@
         - wrong-name
       loop_control:
         loop_var: __nginx_test_endpoint
+
+    - name: NGINX | Read nginx master PID
+      become: true
+      become_user: root
+      ansible.builtin.slurp:
+        src: /run/nginx.pid
+      register: __nginx_test_pid
+
+    - name: NGINX | Read nginx worker PIDs
+      become: true
+      become_user: root
+      ansible.builtin.slurp:
+        src: /proc/{{ __nginx_test_pid.content | b64decode | trim }}/task/{{ __nginx_test_pid.content | b64decode | trim }}/children
+      register: __nginx_test_workers
+
+    - name: NGINX | Read worker process limits
+      become: true
+      become_user: root
+      ansible.builtin.slurp:
+        src: /proc/{{ __nginx_test_worker }}/limits
+      loop: '{{ (__nginx_test_workers.content | b64decode).split() }}'
+      loop_control:
+        loop_var: __nginx_test_worker
+      register: __nginx_test_limits
+
+    - name: NGINX | Assert workers have zero core-file limits
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - __nginx_test_limits.results | length > 0
+          - >-
+            __nginx_test_limits.results | map(attribute='content') | map('b64decode')
+            | select('search', '(?m)^Max core file size\s+0\s+0\s+bytes\s*$')
+            | list | length == __nginx_test_limits.results | length
 
     - name: NGINX | Read service enablement
       ansible.builtin.service_facts:

@@ -73,6 +73,24 @@
         state: directory
         mode: '0700'
 
+    - name: NGINX | Create public fixture directory
+      become: true
+      become_user: root
+      ansible.builtin.file:
+        path: /var/lib/nginx-test
+        state: directory
+        mode: '0755'
+        setype: httpd_sys_content_t
+
+    - name: NGINX | Create response body for overlapping requests
+      become: true
+      become_user: root
+      ansible.builtin.copy:
+        dest: /var/lib/nginx-test/concurrent.txt
+        content: "{{ 'concurrency fixture\n' * 256 }}"
+        mode: '0644'
+        setype: httpd_sys_content_t
+
     - name: NGINX | Configure isolated fixture DNS
       become: true
       become_user: root

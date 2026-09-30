@@ -56,7 +56,17 @@ provisioner:
               server {
                   listen 127.0.0.1:18081;
                   server_name backend.molecule.example;
+                  location = /concurrent {
+                      alias /var/lib/nginx-test/concurrent.txt;
+                      limit_rate 1k;
+                  }
                   location / {
+                      add_header X-Powered-By fixture;
+                      add_header X-AspNet-Version fixture;
+                      add_header X-AspNetMvc-Version fixture;
+                      add_header X-Runtime fixture;
+                      add_header X-Generator fixture;
+                      add_header X-Permitted-Cross-Domain-Policies all;
                       add_header X-Frame-Options SAMEORIGIN;
                       add_header X-XSS-Protection "1; mode=block";
                       add_header Content-Security-Policy "default-src 'self'";
@@ -95,6 +105,13 @@ provisioner:
                   location = /limited {
                       limit_req zone=login;
                       proxy_pass http://127.0.0.1:18081;
+                  }
+                  location = /concurrent {
+                      limit_conn per_client 1;
+                      proxy_pass http://127.0.0.1:18081;
+                  }
+                  location = /concurrent-unlimited {
+                      proxy_pass http://127.0.0.1:18081/concurrent;
                   }
                   location /trusted {
                       proxy_pass https://127.0.0.1:18444;

@@ -8,6 +8,7 @@
   vars:
     nginx_proxy_websockets: true
     nginx_proxy_drop_headers: []
+    nginx_proxy_hide_headers: []
     nginx_resolver_valid: 1s
     nginx_limit_req_status: 503
     nginx_limit_req_zones:
@@ -23,6 +24,7 @@
       Referrer-Policy: strict-origin-when-cross-origin
       X-Frame-Options: SAMEORIGIN
       X-XSS-Protection: '0'
+      X-Permitted-Cross-Domain-Policies: none
   roles:
     - role: "{{ lookup('ansible.builtin.env', 'MOLECULE_PROJECT_DIRECTORY') }}"
   post_tasks:
@@ -88,6 +90,12 @@
           - __nginx_test_response.x_test_cf_connecting_ip == '192.0.2.50'
           - __nginx_test_response.x_test_cluster_client_ip == '192.0.2.50'
           - __nginx_test_response.x_frame_options == 'SAMEORIGIN'
+          - __nginx_test_response.x_permitted_cross_domain_policies == 'none'
+          - __nginx_test_response.x_powered_by == 'fixture'
+          - __nginx_test_response.x_aspnet_version == 'fixture'
+          - __nginx_test_response.x_aspnetmvc_version == 'fixture'
+          - __nginx_test_response.x_runtime == 'fixture'
+          - __nginx_test_response.x_generator == 'fixture'
       loop: '{{ __nginx_test_upgrades.results }}'
       loop_control:
         loop_var: __nginx_test_response
@@ -129,6 +137,19 @@
         quiet: true
         that:
           - __nginx_test_rates.stdout_lines == ['200', '503', '200', '200']
+
+    - name: NGINX | Read service lifecycle log after reload
+      become: true
+      become_user: root
+      ansible.builtin.slurp:
+        src: /var/log/nginx/error.log
+      register: __nginx_test_lifecycle_log
+
+    - name: NGINX | Assert reload lifecycle events are logged
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - __nginx_test_lifecycle_log.content | b64decode is search('\[notice\].*reconfiguring')
 
     - name: NGINX | Verify explicitly enabled TLS 1.2 after reload
       become: true
@@ -175,6 +196,11 @@
               server_name backend.molecule.example;
               location / {
                   add_header X-Powered-By fixture;
+                  add_header X-AspNet-Version fixture;
+                  add_header X-AspNetMvc-Version fixture;
+                  add_header X-Runtime fixture;
+                  add_header X-Generator fixture;
+                  add_header X-Permitted-Cross-Domain-Policies all;
                   add_header Content-Security-Policy "default-src 'self'";
                   add_header Referrer-Policy same-origin;
                   add_header X-Content-Type-Options nosniff;
@@ -192,6 +218,13 @@
               ssl_certificate /etc/nginx-test/cert.pem;
               ssl_certificate_key /etc/nginx-test/key.pem;
               proxy_hide_header X-Powered-By;
+              proxy_hide_header X-AspNet-Version;
+              proxy_hide_header X-AspNetMvc-Version;
+              proxy_hide_header X-Runtime;
+              proxy_hide_header X-Generator;
+              proxy_hide_header Strict-Transport-Security;
+              proxy_hide_header X-Permitted-Cross-Domain-Policies;
+              add_header X-Permitted-Cross-Domain-Policies none always;
               add_header Strict-Transport-Security "max-age=31536000" always;
           {% if nginx_http3 %}
               add_header Alt-Svc 'h3=":8443"; ma=86400' always;
@@ -237,6 +270,9 @@
           - "('alt-svc: h3=\":8443\"; ma=86400' in __nginx_test_tcp.stdout | lower) == nginx_http3"
           - "'strict-transport-security: max-age=31536000' in __nginx_test_tcp.stdout | lower"
           - "'referrer-policy: same-origin' in __nginx_test_tcp.stdout | lower"
+          - "'x-permitted-cross-domain-policies: none' in __nginx_test_tcp.stdout | lower"
+          - >-
+            __nginx_test_tcp.stdout is not search('(?im)^x-(powered-by|aspnet-version|aspnetmvc-version|runtime|generator):')
 
     - name: NGINX | Verify HTTP/3 directly on the test target
       when: nginx_http3
@@ -277,6 +313,11 @@
               - "'x-frame-options: sameorigin' in __nginx_test_response.stdout | lower"
               - "'content-security-policy:' in __nginx_test_response.stdout | lower"
               - "'x-powered-by:' not in __nginx_test_response.stdout | lower"
+              - "'x-aspnet-version:' not in __nginx_test_response.stdout | lower"
+              - "'x-aspnetmvc-version:' not in __nginx_test_response.stdout | lower"
+              - "'x-runtime:' not in __nginx_test_response.stdout | lower"
+              - "'x-generator:' not in __nginx_test_response.stdout | lower"
+              - "'x-permitted-cross-domain-policies: none' in __nginx_test_response.stdout | lower"
           loop: '{{ __nginx_test_quic.results }}'
           loop_control:
             loop_var: __nginx_test_response
@@ -326,6 +367,7 @@
     nginx_vhosts: []
     nginx_resolvers: []
     nginx_limit_req_zones: []
+    nginx_limit_conn_zones: []
   roles:
     - role: '{{ lookup(''ansible.builtin.env'', ''MOLECULE_PROJECT_DIRECTORY'') }}'
   post_tasks:

@@ -26,7 +26,8 @@ The complete candidate is validated before replacing `/etc/nginx/nginx.conf`.
 - Private temporary directories for request and response buffering
 - An inaccessible default document root and configurable edge-owned security
   headers
-- Optional runtime DNS resolvers and global request rate-limit zones
+- Optional runtime DNS resolvers and shared request-rate and concurrency-limit
+  zones
 - Explicit persistent SELinux booleans and their Python bindings
 - Service enablement, startup, and reload on configuration changes
 
@@ -39,7 +40,7 @@ The complete candidate is validated before replacing `/etc/nginx/nginx.conf`.
 
 ## Requirements
 
-- nginx 1.25.1 or newer with the HTTP SSL module and a TLS 1.3-capable library
+- nginx 1.25.3 or newer with the HTTP SSL module and a TLS 1.3-capable library
   is required.
 - The HTTP/2 module is required by default; enabling HTTP/3 additionally
   requires the HTTP/3 module.
@@ -152,6 +153,18 @@ Default:
 nginx_worker_connections: 1024
 ```
 
+### `nginx_error_log_level`
+
+Type: `str`. Required: `false`.
+
+Sets the minimum severity recorded in the nginx error log.
+
+Default:
+
+```yaml
+nginx_error_log_level: info
+```
+
 ### `nginx_keepalive_timeout`
 
 Type: `str`. Required: `false`.
@@ -203,6 +216,7 @@ nginx_security_headers:
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: DENY
   X-XSS-Protection: '0'
+  X-Permitted-Cross-Domain-Policies: none
 ```
 
 ### `nginx_client_max_body_size`
@@ -250,7 +264,7 @@ Limits idle time between writes to a client.
 Default:
 
 ```yaml
-nginx_send_timeout: 30s
+nginx_send_timeout: 10s
 ```
 
 ### `nginx_resolvers`
@@ -335,6 +349,22 @@ nginx_limit_req_zones:
     rate: 20r/s
 ```
 
+### `nginx_limit_conn_zones`
+
+Type: `list`. Required: `false`.
+
+Defines shared concurrency-limit zones; native vhosts or locations activate them
+with limit_conn.
+
+Default:
+
+```yaml
+nginx_limit_conn_zones:
+  - name: per_client
+    key: $binary_remote_addr
+    size: 10m
+```
+
 ### `nginx_proxy_buffering`
 
 Type: `str`. Required: `false`.
@@ -393,6 +423,24 @@ Default:
 
 ```yaml
 nginx_proxy_read_timeout: 60s
+```
+
+### `nginx_proxy_hide_headers`
+
+Type: `list`. Required: `false`.
+
+Suppresses selected upstream response headers independently of edge-owned
+security headers.
+
+Default:
+
+```yaml
+nginx_proxy_hide_headers:
+  - X-Powered-By
+  - X-AspNet-Version
+  - X-AspNetMvc-Version
+  - X-Runtime
+  - X-Generator
 ```
 
 ### `nginx_proxy_drop_headers`
@@ -587,7 +635,8 @@ configuration is applied.
   URL paths to other origins. Disabling obsolete browser XSS filters avoids
   their unsafe legacy behavior. Suppressing software-identification headers
   reduces passive fingerprinting, but does not conceal an unpatched service from
-  active probes.
+  active probes. Disallowing cross-domain policy files prevents supporting
+  clients from granting access through those files; it does not replace CORS.
 - A single owner for each response-header policy avoids conflicting edge and
   backend instructions. Applying the policy to error responses prevents failures
   from dropping browser protections. Native add_header, proxy_set_header and
@@ -600,17 +649,33 @@ configuration is applied.
   X-Frame-Options. Generic permissive CSP is not a substitute for
   application-aware restrictions.
 - HSTS makes returning browsers use HTTPS and refuse certificate errors,
-  reducing downgrade opportunities after a successful HTTPS visit. Extending it
-  to subdomains or preload affects services beyond one vhost and can make them
-  inaccessible if HTTPS or renewal fails. COOP, CORP and Permissions-Policy can
-  restrict cross-origin interaction and browser capabilities, but must preserve
-  required login, embedding, camera and microphone workflows.
+  reducing downgrade opportunities after a successful HTTPS visit. Even without
+  includeSubDomains, it covers the entire hostname across ports and can break
+  HTTP-only services on other ports. The advertised lifetime requires reliable
+  HTTPS and certificate renewal; includeSubDomains and preload broaden that
+  commitment further. COOP, CORP and Permissions-Policy can restrict
+  cross-origin interaction and browser capabilities, but must preserve required
+  login, embedding, camera and microphone workflows.
 - Rate limits can slow brute-force attempts and protect expensive endpoints from
   request floods, but declaring a zone alone enforces nothing: the relevant
   routes must activate it. IP-based quotas group users behind NAT and may span
   several vhosts using one zone. Choose the quota scope and trusted client-IP
   source deliberately; rate limiting does not replace application
   authentication.
+- Limiting concurrent active requests prevents one client from occupying too
+  many backend slots at once, complementing request-rate limits. HTTP/2 and
+  HTTP/3 streams each consume an allowance; long-lived WebSockets and users
+  sharing a NAT address can compete for it. The limit does not cover idle
+  connections or requests whose headers are incomplete, so request-header
+  timeouts remain necessary.
+- Host, TLS and upstream context in access logs helps distinguish targeted
+  vhosts, transport failures and backend incidents. Recording service lifecycle
+  events helps correlate interruptions with reloads and restarts. Logs can
+  expose request URLs and internal addresses; restrict access and retention, and
+  keep token-bearing routes out of access logs where application behavior
+  permits it.
+- Disabling worker core files reduces the risk of persisting TLS secrets,
+  credentials and request contents in crash artifacts.
 - Trusted resolvers reduce exposure to forged DNS answers and avoid sending
   internal backend names to an arbitrary public DNS service. Keep dynamic
   backend hostnames under administrator control so request input cannot turn the
@@ -666,8 +731,27 @@ configuration is applied.
 - A local response-header policy replaces inherited add_header directives. Most
   application examples repeat the baseline headers; Vaultwarden instead
   preserves backend headers and route-specific exceptions. Local
-  proxy_hide_header overrides must repeat X-Powered-By and any security headers
-  that the edge continues to own. Ensure that HSTS is emitted by only one layer.
+  proxy_hide_header overrides must repeat the required software-header filters
+  and any security headers that the edge continues to own. Ensure that HSTS is
+  emitted by only one layer.
+- nginx_proxy_hide_headers selects upstream response headers to suppress. A
+  custom list replaces the defaults; [] disables only this additional filter.
+  Suppression of headers owned by nginx_security_headers remains independent.
+  Local proxy_hide_header directives replace the inherited hide rules, including
+  this list and the edge-owned security-header suppression.
+- HSTS remains a per-HTTPS-vhost policy. The examples use max-age=31536000
+  without includeSubDomains or preload and assume that all browser-accessed
+  services on the hostname support HTTPS. Removing the header does not clear a
+  browser's stored policy; send max-age=0 over valid HTTPS to withdraw it.
+- Access logs use nginx_combined: the standard combined fields followed by host,
+  server, tls, cipher, request_time and upstream fields. Update log parsers that
+  require an exact combined format. nginx_error_log_level defaults to info,
+  including notice-level lifecycle events and informational connection events.
+  Native access_log off remains available for sensitive routes.
+- nginx_send_timeout limits idle time between writes to a client, not the total
+  download duration. Its 10-second default can terminate stalled downloads;
+  applications needing longer pauses can override send_timeout in their native
+  vhost or location.
 - Rate-limit zones become active through limit_req in the selected server or
   location. A custom zone list replaces the defaults; an empty list declares no
   zones. Zone size is shared-memory capacity, not an upload limit. Use distinct
@@ -675,6 +759,15 @@ configuration is applied.
   per-vhost quotas. Changing a deployed key requires a new zone name and
   references for graceful reload. Do not redeclare role-managed zones in native
   configuration.
+- nginx_limit_conn_zones declares shared concurrency counters; a custom list
+  replaces the defaults and [] declares none. Activate them with limit_conn in
+  the selected server or location. Native limit_conn_status and
+  limit_conn_log_level retain nginx's defaults of 503 and error unless
+  overridden. The per_client zone is shared by all routes that use it; isolate
+  keys or zone names for independent quotas. Key or size changes require a new
+  zone name and matching references for graceful reload. The Vaultwarden token
+  route allows ten concurrent requests per client IP; choose this allowance for
+  the application's load and NAT use.
 - Setting nginx_resolvers does not make a static proxy_pass hostname refresh
   dynamically. Variable-based proxy_pass supports runtime resolution on the
   role's baseline; named upstream server resolve requires nginx OSS 1.27.3 or
@@ -768,7 +861,7 @@ needed.
 Vaultwarden owns CSP, framing, referrer, permissions and resource policies.
 Preserve its route-specific exceptions for MFA connectors, icons and
 WebSockets. The local proxy_hide_header resets inherited hide rules, and
-the local add_header set adds only edge-owned HSTS.
+the local add_header set adds edge-owned HSTS and cross-domain policy.
 See the [Vaultwarden header
 implementation](https://github.com/dani-garcia/vaultwarden/blob/main/src/util.rs).
 Token requests use the global login zone with a burst of 10; account for
@@ -815,6 +908,13 @@ nginx_vhosts:
           proxy_buffering off;
           # Preserve backend headers and their route-specific exceptions.
           proxy_hide_header X-Powered-By;
+          proxy_hide_header X-AspNet-Version;
+          proxy_hide_header X-AspNetMvc-Version;
+          proxy_hide_header X-Runtime;
+          proxy_hide_header X-Generator;
+          proxy_hide_header Strict-Transport-Security;
+          proxy_hide_header X-Permitted-Cross-Domain-Policies;
+          add_header X-Permitted-Cross-Domain-Policies none always;
           add_header Strict-Transport-Security "max-age=31536000" always;
           # Optional HTTP/3:
           # add_header Alt-Svc 'h3=":443"; ma=86400' always;
@@ -822,6 +922,7 @@ nginx_vhosts:
           location ~ ^/\.(?!well-known(?:/|$)) { return 404; }
           location = /identity/connect/token {
               limit_req zone=login burst=10 nodelay;
+              limit_conn per_client 10;
               proxy_pass http://127.0.0.1:8000;
           }
           location /notifications/ {
@@ -880,6 +981,7 @@ nginx_vhosts:
           add_header Referrer-Policy strict-origin-when-cross-origin always;
           add_header X-Frame-Options DENY always;
           add_header X-XSS-Protection "0" always;
+          add_header X-Permitted-Cross-Domain-Policies none always;
           add_header Strict-Transport-Security "max-age=31536000" always;
           add_header Content-Security-Policy "frame-ancestors 'none'" always;
           add_header Permissions-Policy
@@ -932,6 +1034,7 @@ nginx_vhosts:
           add_header Referrer-Policy strict-origin-when-cross-origin always;
           add_header X-Frame-Options DENY always;
           add_header X-XSS-Protection "0" always;
+          add_header X-Permitted-Cross-Domain-Policies none always;
           add_header Strict-Transport-Security "max-age=31536000" always;
           add_header Content-Security-Policy "frame-ancestors 'none'" always;
           add_header Permissions-Policy
@@ -957,7 +1060,7 @@ actual peer address in container deployments.
 Keep the application's CSP and same-origin framing for app integrations.
 Camera/microphone permissions remain application-owned for Talk.
 This example streams request bodies up to 10 GiB and allows 300-second idle
-periods; align PHP, backend, quota and storage limits.
+periods for uploads and backend replies; align PHP, backend, quota and storage limits.
 HTTP discovery redirects cover DAV, WebFinger and NodeInfo; ACME challenges
 remain externally managed.
 Only root-level hidden paths are blocked: a blanket dotfile restriction would
@@ -992,6 +1095,7 @@ nginx_vhosts:
           add_header Referrer-Policy strict-origin-when-cross-origin always;
           add_header X-Frame-Options SAMEORIGIN always;
           add_header X-XSS-Protection "0" always;
+          add_header X-Permitted-Cross-Domain-Policies none always;
           add_header Strict-Transport-Security "max-age=31536000" always;
           location = /.well-known/carddav {
               return 301 https://nextcloud.example.com/remote.php/dav/;
@@ -1024,6 +1128,10 @@ nginx_vhosts:
 - [nginx runtime DNS resolver](https://nginx.org/en/docs/http/ngx_http_core_module.html#resolver)
 - [nginx dynamic upstream resolution](https://nginx.org/en/docs/http/ngx_http_upstream_module.html#resolve)
 - [nginx request rate limiting](https://nginx.org/en/docs/http/ngx_http_limit_req_module.html)
+- [nginx concurrency limiting](https://nginx.org/en/docs/http/ngx_http_limit_conn_module.html)
+- [nginx access-log formats](https://nginx.org/en/docs/http/ngx_http_log_module.html#log_format)
+- [nginx error-log levels](https://nginx.org/en/docs/ngx_core_module.html#error_log)
+- [HSTS host and port scope](https://www.rfc-editor.org/rfc/rfc6797.html#section-8.3)
 
 ## Author
 

@@ -62,6 +62,19 @@ argument_specs:
         type: int
         default: 1024
         description: Limits simultaneous connections per worker, including upstream connections.
+      nginx_error_log_level:
+        type: str
+        default: info
+        choices:
+          - emerg
+          - alert
+          - crit
+          - error
+          - warn
+          - notice
+          - info
+          - debug
+        description: Sets the minimum severity recorded in the nginx error log.
       nginx_keepalive_timeout:
         type: str
         default: 5 5
@@ -87,6 +100,7 @@ argument_specs:
           Referrer-Policy: strict-origin-when-cross-origin
           X-Frame-Options: DENY
           X-XSS-Protection: '0'
+          X-Permitted-Cross-Domain-Policies: none
         description: Sets edge-owned response headers on all statuses and suppresses matching
           upstream headers.
       nginx_client_max_body_size:
@@ -103,7 +117,7 @@ argument_specs:
         description: Limits idle time between reads of a request body.
       nginx_send_timeout:
         type: str
-        default: 30s
+        default: 10s
         description: Limits idle time between writes to a client.
       nginx_resolvers:
         type: list
@@ -160,6 +174,25 @@ argument_specs:
           rate:
             type: str
             required: true
+      nginx_limit_conn_zones:
+        type: list
+        elements: dict
+        default:
+          - name: per_client
+            key: $binary_remote_addr
+            size: 10m
+        description: Defines shared concurrency-limit zones; native vhosts or locations
+          activate them with limit_conn.
+        options:
+          name:
+            type: str
+            required: true
+          key:
+            type: str
+            required: true
+          size:
+            type: str
+            required: true
       nginx_proxy_buffering:
         type: str
         default: 'on'
@@ -186,6 +219,17 @@ argument_specs:
         type: str
         default: 60s
         description: Limits idle time between reads from an upstream.
+      nginx_proxy_hide_headers:
+        type: list
+        elements: str
+        default:
+          - X-Powered-By
+          - X-AspNet-Version
+          - X-AspNetMvc-Version
+          - X-Runtime
+          - X-Generator
+        description: Suppresses selected upstream response headers independently of edge-owned
+          security headers.
       nginx_proxy_drop_headers:
         type: list
         elements: str
