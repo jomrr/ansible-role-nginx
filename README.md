@@ -1012,7 +1012,7 @@ nginx_vhosts:
           add_header Content-Security-Policy "frame-ancestors 'none'" always;
           add_header Permissions-Policy
               "camera=(), microphone=(), geolocation=()" always;
-          location ~ ^/\.(?!well-known(?:/|$)) { return 404; }
+          location ~ ^/+\.(?!well-known(?:/|$)) { return 404; }
           location = /user/login {
               limit_req zone=login burst=10 nodelay;
               proxy_pass http://127.0.0.1:3000;
