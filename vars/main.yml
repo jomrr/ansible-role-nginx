@@ -1,0 +1,7 @@
+---
+# role: nginx
+# file: vars/main.yml
+
+__nginx_log_directory: /var/log/nginx
+__nginx_temp_directory: /var/lib/nginx/tmp
+__nginx_pid_file: /run/nginx.pid

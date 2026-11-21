@@ -21,6 +21,28 @@
     name: "{{ ['nginx', 'ca-certificates'] + nginx_extra_packages }}"
     state: present
 
+- name: NGINX | Install selected dynamic module packages
+  become: true
+  become_user: root
+  ansible.builtin.package:
+    name: "{{ nginx_modules | map(attribute='package') | unique | list }}"
+    state: present
+  notify: restart
+
+- name: NGINX | Read installed packages for module selection
+  ansible.builtin.package_facts:
+    manager: auto
+
+- name: NGINX | Remove unselected dynamic module packages
+  become: true
+  become_user: root
+  ansible.builtin.package:
+    name: >-
+      {{ ansible_facts.packages | select('match', __nginx_module_package_pattern)
+         | difference(nginx_modules | map(attribute='package')) | list }}
+    state: absent
+  notify: restart
+
 - name: NGINX | Install SELinux bindings
   become: true
   become_user: root
@@ -29,7 +51,8 @@
     state: present
   when:
     - ansible_facts.selinux.status == 'enabled'
-    - nginx_sebooleans | length > 0
+    - nginx_sebooleans | length > 0 or nginx_http3
+  register: __nginx_selinux_bindings
 
 - name: NGINX | Manage persistent SELinux booleans
   become: true
@@ -46,11 +69,29 @@
     - ansible_facts.selinux.status == 'enabled'
     - not ansible_check_mode
 
+- name: NGINX | Label QUIC UDP ports persistently
+  become: true
+  become_user: root
+  community.general.seport:
+    ports: "{{ __nginx_listener.port }}"
+    proto: udp
+    setype: http_port_t
+    state: present
+  loop: "{{ nginx_listen }}"
+  loop_control:
+    loop_var: __nginx_listener
+    label: "{{ __nginx_listener.port }}/udp"
+  when:
+    - ansible_facts.selinux.status == 'enabled'
+    - nginx_http3
+    - __nginx_listener.protocol | default('http') == 'https'
+    - not ansible_check_mode or not __nginx_selinux_bindings.changed
+
 - name: NGINX | Create private request buffering directory
   become: true
   become_user: root
   ansible.builtin.file:
-    path: /var/lib/nginx/tmp
+    path: "{{ __nginx_temp_directory }}"
     state: directory
     owner: "{{ __nginx_user }}"
     group: "{{ __nginx_group }}"
@@ -80,10 +121,34 @@
   no_log: true
   notify: reload
 
+- name: NGINX | Create service drop-in directory
+  become: true
+  become_user: root
+  ansible.builtin.file:
+    path: /etc/systemd/system/nginx.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: NGINX | Configure service hardening
+  become: true
+  become_user: root
+  ansible.builtin.template:
+    src: nginx.service.conf.j2
+    dest: /etc/systemd/system/nginx.service.d/50-ansible.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart
+
+- name: NGINX | Apply service changes after configuration validation
+  ansible.builtin.meta: flush_handlers
+
 - name: NGINX | Enable and start service
   become: true
   become_user: root
-  ansible.builtin.service:
+  ansible.builtin.systemd_service:
     name: nginx
     enabled: true
     state: started

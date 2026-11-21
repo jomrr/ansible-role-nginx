@@ -20,7 +20,9 @@ The complete candidate is validated before replacing `/etc/nginx/nginx.conf`.
 
 ### Managed
 
-- nginx and CA certificate packages
+- nginx and CA certificate packages, selected dynamic modules, and removal of
+  other distribution module packages
+- Optional systemd service hardening and restart policy
 - Complete nginx main configuration and declared native vhosts, including
   application-specific security policies
 - Private temporary directories for request and response buffering
@@ -28,18 +30,21 @@ The complete candidate is validated before replacing `/etc/nginx/nginx.conf`.
   headers
 - Optional runtime DNS resolvers and shared request-rate and concurrency-limit
   zones
-- Explicit persistent SELinux booleans and their Python bindings
+- Explicit persistent SELinux booleans, QUIC UDP port labels, and their Python
+  bindings
 - Service enablement, startup, and reload on configuration changes
 
 ### Not Managed
 
 - Certificate issuance, deployment, renewal, and ACME challenges
-- Application services, authentication, firewall, and SELinux ports or file
-  contexts
-- Distribution include directories and dynamic modules
+- Application services, authentication, firewall, non-QUIC SELinux ports, and
+  file contexts
+- Distribution include directories
 
 ## Requirements
 
+- systemd with support for ProtectProc and ProcSubset (version 247 or newer) is
+  required for service hardening.
 - nginx 1.25.3 or newer with the HTTP SSL module and a TLS 1.3-capable library
   is required.
 - The HTTP/2 module is required by default; enabling HTTP/3 additionally
@@ -71,6 +76,44 @@ Default:
 
 ```yaml
 nginx_extra_packages: []
+```
+
+### `nginx_modules`
+
+Type: `list`. Required: `false`.
+
+Installs and loads only the selected distribution dynamic modules, in list
+order.
+
+Default:
+
+```yaml
+nginx_modules: []
+```
+
+### `nginx_systemd_hardening`
+
+Type: `bool`. Required: `false`.
+
+Applies the systemd service sandbox and automatic restart policy.
+
+Default:
+
+```yaml
+nginx_systemd_hardening: true
+```
+
+### `nginx_systemd_read_write_paths`
+
+Type: `list`. Required: `false`.
+
+Adds writable paths to the service sandbox; missing paths are ignored, not
+created.
+
+Default:
+
+```yaml
+nginx_systemd_read_write_paths: []
 ```
 
 ### `nginx_sebooleans`
@@ -572,13 +615,16 @@ nginx_vhosts: []
 ## Managed Files
 
 - `/etc/nginx/nginx.conf`
+- `/etc/systemd/system/nginx.service.d/50-ansible.conf`
 - `/var/lib/nginx/tmp`
 - `/var/lib/nginx/empty`
 
 ## Check Mode
 
-Predicts package, directory, and template changes, including on first
-installation.
+Predicts package, directory, template, and QUIC SELinux port-label changes,
+including on first installation.
+Port-label prediction requires installed SELinux bindings; on a first check-only
+installation of those bindings, labeling is deferred.
 Native candidate validation is performed by the template module only on real
 writes, not in check mode.
 Service operations and SELinux boolean changes are skipped in check mode because
@@ -588,17 +634,32 @@ prerequisites may only be simulated.
 
 Enables and starts nginx after installing validated configuration. Configuration
 changes notify a graceful reload.
-An unchanged run does not reload nginx. Invalid candidates do not replace the
-main configuration or notify a reload.
+Module package and service drop-in changes trigger a daemon-reload and restart
+after candidate validation.
+An unchanged run does not reload or restart nginx. Invalid candidates do not
+replace the main configuration or notify a reload.
 Package installation may start the distribution service before role
 configuration is applied.
 
 ### Handlers
 
+- NGINX | Restart service with updated unit settings
 - NGINX | Reload service
 
 ## Security Notes
 
+- Removing unselected dynamic modules reduces executable code available to nginx
+  and eliminates unnecessary module package maintenance. Statically compiled
+  modules remain part of the distribution binary; selecting an empty module list
+  does not remove those capabilities.
+- The systemd sandbox restricts filesystem writes, kernel interfaces, device
+  access, namespaces, system calls, and executable memory. The capability set
+  permits privileged port binding, worker identity changes, and reading
+  protected configuration; it does not make the root master unprivileged.
+  Additional writable paths expand the damage a compromised process can cause.
+- QUIC UDP port labels allow the confined web-server domain to bind only the
+  configured ports without disabling SELinux enforcement. Port labels are shared
+  host policy and do not grant firewall access.
 - Default-deny listeners prevent requests with unexpected hostnames from
   reaching an application selected by listener order. Rejecting unknown TLS and
   QUIC SNI also avoids presenting an unrelated application's certificate. This
@@ -721,6 +782,32 @@ configuration is applied.
 
 ## Operational Notes
 
+- nginx_modules is the complete dynamic-module selection. Each entry specifies a
+  distribution package and its load_module path; entries load in list order.
+  Declare module dependencies explicitly. Unselected `nginx-mod-*` and
+  `nginx-all-modules` packages on RedHat, `libnginx-mod-*` on Debian, and
+  `nginx-module-*` on SUSE are removed. Do not put module packages in
+  nginx_extra_packages. Distribution module include files are not loaded; []
+  installs and loads no dynamic modules.
+- The distribution unit defines service startup, reload, shutdown, and PID
+  tracking. The hardening drop-in only adds sandbox settings and the restart
+  policy; disabling nginx_systemd_hardening leaves no active settings in that
+  drop-in. Hardening changes require a daemon-reload and service restart.
+- With nginx_systemd_hardening enabled, ReadWritePaths permits writes to the
+  role's log and buffering directories and the PID file's parent directory plus
+  nginx_systemd_read_write_paths. The existing /run/nginx.pid requires writable
+  /run for PID-file creation and removal; Unix permissions still apply.
+  PrivateTmp provides separate writable temporary directories. Missing
+  allowlisted paths do not prevent service start and are not created by the
+  allowlist. Prepare application cache directories separately with suitable
+  ownership and SELinux contexts. ProtectHome hides home directories, including
+  certificates below /root. MemoryDenyWriteExecute is incompatible with
+  JIT-dependent modules and pcre_jit on.
+- With nginx_http3 enabled on an SELinux-enabled host, all HTTPS ports in
+  nginx_listen receive persistent UDP http_port_t labels. Native QUIC vhosts
+  must use those managed endpoints. Duplicate address entries share the same
+  port label. Labels are retained when HTTP/3 is disabled or a listener is
+  removed because another confined service may still use the shared host policy.
 - Every application listen address and port must have an equivalent entry in
   nginx_listen, including address-specific and IPv6 listeners. Configure TLS
   protocols globally because handshake selection begins in the default server.

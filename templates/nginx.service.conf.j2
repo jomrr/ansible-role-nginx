@@ -1,0 +1,40 @@
+# Managed by ansible.
+# file: {{ template_destpath }}
+
+{% if nginx_systemd_hardening %}
+[Service]
+CapabilityBoundingSet=
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_SETGID CAP_SETUID CAP_DAC_OVERRIDE
+AmbientCapabilities=
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=
+SystemCallFilter=@system-service
+DevicePolicy=closed
+Restart=always
+RestartSec=60s
+ReadWritePaths=
+{% for __nginx_path in ([__nginx_log_directory, __nginx_temp_directory, __nginx_pid_file | dirname] + nginx_systemd_read_write_paths) | unique %}
+ReadWritePaths={{ ('-' ~ __nginx_path | replace('%', '%%')) | to_json }}
+{% endfor %}
+{% endif %}

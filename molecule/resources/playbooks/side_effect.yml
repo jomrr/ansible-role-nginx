@@ -6,6 +6,7 @@
   hosts: all
   gather_facts: true
   vars:
+    nginx_modules: '{{ [__nginx_test_modules[ansible_facts.os_family]] }}'
     nginx_proxy_websockets: true
     nginx_proxy_drop_headers: []
     nginx_proxy_hide_headers: []
@@ -28,6 +29,21 @@
   roles:
     - role: "{{ lookup('ansible.builtin.env', 'MOLECULE_PROJECT_DIRECTORY') }}"
   post_tasks:
+    - name: NGINX | Exercise the selected dynamic module
+      ansible.builtin.uri:
+        use_proxy: false
+        url: http://127.0.0.1:8080/module
+        headers:
+          Host: app.molecule.example
+        return_content: true
+      register: __nginx_test_module_response
+
+    - name: NGINX | Assert the module produced its response
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - __nginx_test_module_response.content | trim == 'module-loaded'
+
     - name: NGINX | Read proxy headers for allowed and rejected upgrades after reload
       ansible.builtin.uri:
         use_proxy: false
@@ -185,6 +201,7 @@
   hosts: all
   gather_facts: true
   vars:
+    nginx_modules: '{{ [__nginx_test_modules[ansible_facts.os_family]] }}'
     nginx_http2: false
     nginx_http3: "{{ ansible_facts.os_family != 'Suse' }}"
     nginx_vhosts:
@@ -276,6 +293,55 @@
           - >-
             __nginx_test_tcp.stdout is not search('(?im)^x-(powered-by|aspnet-version|aspnetmvc-version|runtime|generator):')
 
+    - name: NGINX | Restart existing test containers to verify boot-time service startup
+      delegate_to: localhost
+      containers.podman.podman_container:
+        name: '{{ inventory_hostname }}'
+        state: started
+        force_restart: true
+
+    - name: NGINX | Wait for restarted targets
+      ansible.builtin.wait_for_connection:
+        timeout: 90
+
+    - name: NGINX | Restore fixture name resolution after container reboot
+      ansible.builtin.import_tasks: ../tasks/fixture_hosts.yml
+
+    - name: NGINX | Wait for TLS service after container reboot
+      become: true
+      become_user: root
+      ansible.builtin.uri:
+        use_proxy: false
+        url: https://app.molecule.example:8443/
+        ca_path: /etc/nginx-test/cert.pem
+      register: __nginx_test_boot_response
+      until: __nginx_test_boot_response is succeeded
+      retries: 10
+      delay: 1
+
+    - name: NGINX | Check applied QUIC labels without changing policy
+      become: true
+      become_user: root
+      community.general.seport:
+        ports: '8443'
+        proto: udp
+        setype: http_port_t
+        state: present
+      check_mode: true
+      register: __nginx_test_port_policy
+      when:
+        - nginx_http3
+        - ansible_facts.selinux.status == 'enabled'
+
+    - name: NGINX | Assert the configured QUIC UDP port is already labeled
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - not __nginx_test_port_policy.changed
+      when:
+        - nginx_http3
+        - ansible_facts.selinux.status == 'enabled'
+
     - name: NGINX | Verify HTTP/3 directly on the test target
       when: nginx_http3
       environment:
@@ -366,6 +432,8 @@
   gather_facts: true
   vars:
     nginx_http3: false
+    nginx_systemd_hardening: false
+    nginx_modules: []
     nginx_vhosts: []
     nginx_resolvers: []
     nginx_limit_req_zones: []
@@ -373,6 +441,27 @@
   roles:
     - role: '{{ lookup(''ansible.builtin.env'', ''MOLECULE_PROJECT_DIRECTORY'') }}'
   post_tasks:
+
+    - name: NGINX | Read remaining packages after module deselection
+      ansible.builtin.package_facts:
+        manager: auto
+
+    - name: NGINX | Read service settings after disabling hardening
+      become: true
+      become_user: root
+      ansible.builtin.systemd_service:
+        name: nginx
+        state: started
+      check_mode: true
+      register: __nginx_test_unhardened
+
+    - name: NGINX | Assert optional hardening and dynamic module removal
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - __nginx_test_modules[ansible_facts.os_family].package not in ansible_facts.packages
+          - __nginx_test_unhardened.status.ProtectSystem != 'strict'
+          - __nginx_test_unhardened.status.Restart != 'always'
 
     - name: NGINX | Verify removed hosts are denied after reload
       ansible.builtin.uri:

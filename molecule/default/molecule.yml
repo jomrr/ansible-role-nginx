@@ -14,17 +14,25 @@ provisioner:
       interpreter_python: "auto_silent"
       callbacks_enabled: "ansible.posix.profile_tasks,ansible.posix.timer"
       callback_result_format: "yaml"
-    ssh_connection:
+    connection:
       pipelining: true
-  log: true
-  playbooks:
-    prepare: "../resources/playbooks/prepare.yml"
-    converge: "../resources/playbooks/converge.yml"
-    verify: "../resources/playbooks/verify.yml"
-    side_effect: "../resources/playbooks/side_effect.yml"
   inventory:
     group_vars:
       all:
+        ansible_podman_mount_detection: false
+        __nginx_test_modules:
+          RedHat:
+            package: "nginx-mod-http-perl"
+            path: "/usr/lib64/nginx/modules/ngx_http_perl_module.so"
+          Debian:
+            package: "libnginx-mod-http-perl"
+            path: "/usr/lib/nginx/modules/ngx_http_perl_module.so"
+          Suse:
+            package: "nginx-module-echo"
+            path: "/usr/lib64/nginx/modules/ngx_http_echo_module.so"
+        nginx_systemd_read_write_paths:
+          - "/var/lib/nginx-test"
+          - "/var/lib/nginx-test-missing"
         __nginx_test_spoofed_headers:
           Host: "app.molecule.example"
           Connection: "upgrade"
@@ -55,7 +63,10 @@ provisioner:
             protocol: "https"
         nginx_vhosts:
           - name: "fixture"
-            config: |-
+            config: |
+              {% if nginx_modules and ansible_facts.os_family != 'Suse' %}
+              perl_set $$module_response 'sub { return "module-loaded"; }';
+              {% endif %}
               server {
                   listen 127.0.0.1:18081;
                   server_name backend.molecule.example;
@@ -103,6 +114,16 @@ provisioner:
                   ssl_certificate /etc/nginx-test/cert.pem;
                   ssl_certificate_key /etc/nginx-test/key.pem;
                   location / { proxy_pass http://127.0.0.1:18081; }
+              {% if nginx_modules %}
+                  location = /module {
+                      error_log /var/lib/nginx-test/service.log info;
+              {% if ansible_facts.os_family == 'Suse' %}
+                      echo module-loaded;
+              {% else %}
+                      return 200 $$module_response;
+              {% endif %}
+                  }
+              {% endif %}
                   location = /resolved {
                       set $$dynamic_backend dynamic.molecule.example:18081;
                       proxy_pass http://$$dynamic_backend;
@@ -137,6 +158,12 @@ provisioner:
             config: "server { listen 8080; server_name static.molecule.example; }"
           - name: "removed"
             config: "server { listen 8080; server_name removed.molecule.example; return 200 \"present\"; }"
+  log: true
+  playbooks:
+    prepare: "../resources/playbooks/prepare.yml"
+    converge: "../resources/playbooks/converge.yml"
+    verify: "../resources/playbooks/verify.yml"
+    side_effect: "../resources/playbooks/side_effect.yml"
 verifier:
   name: "ansible"
 scenario:

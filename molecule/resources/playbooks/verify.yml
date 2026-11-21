@@ -6,6 +6,45 @@
   hosts: all
   gather_facts: false
   tasks:
+    - name: NGINX | Read packages after removing the unselected module
+      ansible.builtin.package_facts:
+        manager: auto
+
+    - name: NGINX | Assert the default module selection is empty
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - >-
+            ansible_facts.packages | select('match', '^(nginx-mod-|nginx-module-|libnginx-mod-|nginx-all-modules$)')
+            | list | length == 0
+
+    - name: NGINX | Read active service settings
+      become: true
+      become_user: root
+      ansible.builtin.systemd_service:
+        name: nginx
+        state: started
+      check_mode: true
+      register: __nginx_test_service
+
+    - name: NGINX | Assert the running service uses the managed sandbox
+      ansible.builtin.assert:
+        quiet: true
+        that:
+          - __nginx_test_service.status.NoNewPrivileges == 'yes'
+          - __nginx_test_service.status.ProtectSystem == 'strict'
+          - __nginx_test_service.status.ProtectHome == 'yes'
+          - __nginx_test_service.status.PrivateDevices == 'yes'
+          - __nginx_test_service.status.PrivateTmp in ['yes', 'disconnected']
+          - __nginx_test_service.status.ProtectProc == 'invisible'
+          - __nginx_test_service.status.ProcSubset == 'pid'
+          - __nginx_test_service.status.MemoryDenyWriteExecute == 'yes'
+          - __nginx_test_service.status.Restart == 'always'
+          - __nginx_test_service.status.RestartUSec == '1min'
+          - >-
+            __nginx_test_service.status.CapabilityBoundingSet.split() | sort
+            == ['cap_dac_override', 'cap_net_bind_service', 'cap_setgid', 'cap_setuid']
+          - __nginx_test_service.status.AmbientCapabilities == 'cap_net_bind_service'
 
     - name: NGINX | Negotiate default HTTP/2 over TLS
       become: true

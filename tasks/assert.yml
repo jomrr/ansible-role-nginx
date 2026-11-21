@@ -20,3 +20,25 @@
   loop_control:
     loop_var: __nginx_name
     label: "{{ __nginx_name }}"
+
+- name: NGINX | Require individual distribution module packages
+  ansible.builtin.assert:
+    quiet: true
+    that:
+      - __nginx_module.package is match(__nginx_module_package_pattern)
+      - __nginx_module.package is match('^[A-Za-z0-9][A-Za-z0-9+_.-]*\Z')
+      - __nginx_module.package != 'nginx-all-modules'
+  loop: "{{ nginx_modules }}"
+  loop_control:
+    loop_var: __nginx_module
+    label: "{{ __nginx_module.package }}"
+
+- name: NGINX | Require absolute additional writable paths
+  ansible.builtin.assert:
+    quiet: true
+    that:
+      - __nginx_path is match('^/[^\n\r]*\Z')
+  loop: "{{ nginx_systemd_read_write_paths }}"
+  loop_control:
+    loop_var: __nginx_path
+    label: "{{ __nginx_path }}"

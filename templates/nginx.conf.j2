@@ -1,11 +1,15 @@
 # Managed by ansible.
 # file: {{ template_destpath }}
 
+{% for __nginx_module in nginx_modules %}
+load_module {{ __nginx_module.path | to_json }};
+{% endfor %}
+
 user {{ __nginx_user }} {{ __nginx_group }};
-pid /run/nginx.pid;
+pid {{ __nginx_pid_file }};
 worker_processes {{ nginx_worker_processes }};
 worker_rlimit_core 0;
-error_log /var/log/nginx/error.log {{ nginx_error_log_level }};
+error_log {{ __nginx_log_directory }}/error.log {{ nginx_error_log_level }};
 
 events {
     worker_connections {{ nginx_worker_connections }};
@@ -19,7 +23,7 @@ http {
                               '$status $body_bytes_sent "$http_referer" "$http_user_agent" '
                               'host="$host" server="$server_name" tls="$ssl_protocol" '
                               'cipher="$ssl_cipher" request_time="$request_time" upstream="$upstream_addr"';
-    access_log /var/log/nginx/access.log nginx_combined;
+    access_log {{ __nginx_log_directory }}/access.log nginx_combined;
 
     # An omitted application handler must never expose the packaged document root.
     root /var/lib/nginx/empty;
@@ -31,8 +35,8 @@ http {
     client_header_timeout {{ nginx_client_header_timeout }};
     client_body_timeout {{ nginx_client_body_timeout }};
     send_timeout {{ nginx_send_timeout }};
-    client_body_temp_path /var/lib/nginx/tmp/client;
-    proxy_temp_path /var/lib/nginx/tmp/proxy;
+    client_body_temp_path {{ __nginx_temp_directory }}/client;
+    proxy_temp_path {{ __nginx_temp_directory }}/proxy;
     gzip off;
 {% if nginx_http2 %}
     http2 on;

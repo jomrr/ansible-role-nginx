@@ -8,4 +8,6 @@ __nginx_ca_bundle: /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
 __nginx_selinux_packages:
   - python3-libselinux
   - python3-libsemanage
+  - policycoreutils-python-utils
 __nginx_validate_config: /usr/sbin/nginx -t -c %s
+__nginx_module_package_pattern: '^nginx-(mod-.+|all-modules)$'

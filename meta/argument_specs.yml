@@ -14,6 +14,29 @@ argument_specs:
         default: []
         description: Installs additional packages required by native vhost configuration.
         elements: str
+      nginx_modules:
+        type: list
+        elements: dict
+        default: []
+        description: Installs and loads only the selected distribution dynamic modules,
+          in list order.
+        options:
+          package:
+            type: str
+            required: true
+          path:
+            type: str
+            required: true
+      nginx_systemd_hardening:
+        type: bool
+        default: true
+        description: Applies the systemd service sandbox and automatic restart policy.
+      nginx_systemd_read_write_paths:
+        type: list
+        elements: str
+        default: []
+        description: Adds writable paths to the service sandbox; missing paths are ignored,
+          not created.
       nginx_sebooleans:
         type: dict
         default: {}

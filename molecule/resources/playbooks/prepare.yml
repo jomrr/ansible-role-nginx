@@ -67,6 +67,13 @@
             virtualenv_command: python3 -m venv
             extra_args: '--only-binary=:all:'
 
+    - name: NGINX | Install an initially unselected dynamic module
+      become: true
+      become_user: root
+      ansible.builtin.package:
+        name: '{{ __nginx_test_modules[ansible_facts.os_family].package }}'
+        state: present
+
     - name: NGINX | Create fixture directory
       become: true
       become_user: root
@@ -168,11 +175,5 @@
         provider: selfsigned
         mode: '0644'
 
-    - name: NGINX | Resolve fixture hostname
-      become: true
-      become_user: root
-      ansible.builtin.lineinfile:
-        path: /etc/hosts
-        # Podman bind-mounts this file, so atomic rename is unavailable.
-        unsafe_writes: true
-        line: 127.0.0.1 app.molecule.example second.molecule.example unknown.molecule.example
+    - name: NGINX | Resolve fixture hostnames
+      ansible.builtin.import_tasks: ../tasks/fixture_hosts.yml

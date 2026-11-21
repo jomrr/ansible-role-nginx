@@ -8,6 +8,22 @@ nginx_extra_packages: []
 # nginx_extra_packages:
 #   - certbot
 
+# Installs and loads only the selected distribution dynamic modules, in list order.
+nginx_modules: []
+# Example: enable the image filter module on Fedora.
+# nginx_modules:
+#   - package: nginx-mod-http-image-filter
+#     path: /usr/lib64/nginx/modules/ngx_http_image_filter_module.so
+
+# Applies the systemd service sandbox and automatic restart policy.
+nginx_systemd_hardening: true
+
+# Adds writable paths to the service sandbox; missing paths are ignored, not created.
+nginx_systemd_read_write_paths: []
+# Example: allow an application-specific proxy cache prepared outside this role.
+# nginx_systemd_read_write_paths:
+#   - /srv/nginx/cache
+
 # Manages explicitly selected SELinux booleans persistently on enabled hosts.
 nginx_sebooleans: {}
 # Example: permit reverse-proxy backend connections on enforcing SELinux hosts.

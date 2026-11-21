@@ -2,10 +2,20 @@
 # role: nginx
 # file: handlers/main.yml
 
+- name: NGINX | Restart service with updated unit settings
+  become: true
+  become_user: root
+  ansible.builtin.systemd_service:
+    name: nginx
+    daemon_reload: true
+    state: restarted
+  listen: restart
+  when: not ansible_check_mode
+
 - name: NGINX | Reload service
   become: true
   become_user: root
-  ansible.builtin.service:
+  ansible.builtin.systemd_service:
     name: nginx
     state: reloaded
   listen: reload

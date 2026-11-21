@@ -8,4 +8,6 @@ __nginx_ca_bundle: /etc/ssl/certs/ca-certificates.crt
 __nginx_selinux_packages:
   - python3-selinux
   - python3-semanage
+  - policycoreutils-python-utils
 __nginx_validate_config: /usr/sbin/nginx -t -c %s
+__nginx_module_package_pattern: '^libnginx-mod-.+$'

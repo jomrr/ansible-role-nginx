@@ -1,0 +1,12 @@
+---
+# role: nginx
+# file: molecule/resources/tasks/fixture_hosts.yml
+
+- name: NGINX | Resolve fixture hostnames in the Podman-managed hosts file
+  become: true
+  become_user: root
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    # Podman bind-mounts and recreates this file on container start.
+    unsafe_writes: true
+    line: 127.0.0.1 app.molecule.example second.molecule.example unknown.molecule.example
