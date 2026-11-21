@@ -67,6 +67,14 @@ argument_specs:
             choices:
               - http
               - https
+      nginx_default_server_return:
+        type: int
+        default: 404
+        choices:
+          - 404
+          - 444
+        description: Returns HTTP 404 or closes without an HTTP response for requests handled
+          by a default server.
       nginx_http2:
         type: bool
         default: true

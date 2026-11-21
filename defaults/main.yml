@@ -39,6 +39,10 @@ nginx_listen:
     port: 443
     protocol: https
 
+# Returns HTTP 404 or closes without an HTTP response for requests handled by a default server.
+# Choices: 404, 444
+nginx_default_server_return: 404
+
 # Enables inherited HTTP/2 over TLS and disables h2c on managed HTTP endpoints.
 nginx_http2: true
 

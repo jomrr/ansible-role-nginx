@@ -431,6 +431,7 @@
   hosts: all
   gather_facts: true
   vars:
+    nginx_default_server_return: 444
     nginx_http3: false
     nginx_systemd_hardening: false
     nginx_modules: []
@@ -463,13 +464,23 @@
           - __nginx_test_unhardened.status.ProtectSystem != 'strict'
           - __nginx_test_unhardened.status.Restart != 'always'
 
-    - name: NGINX | Verify removed hosts are denied after reload
-      ansible.builtin.uri:
-        use_proxy: false
-        url: http://127.0.0.1:8080/
-        headers:
-          Host: '{{ __nginx_test_host }}'
-        status_code: 404
+    - name: NGINX | Verify removed hosts receive no HTTP response with 444
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --http1.1
+          - --noproxy
+          - '*'
+          - --max-time
+          - '5'
+          - --silent
+          - --show-error
+          - --header
+          - 'Host: {{ __nginx_test_host }}'
+          - http://127.0.0.1:8080/
+      changed_when: false
+      failed_when: __nginx_test_denial.rc != 52
+      register: __nginx_test_denial
       loop:
         - app.molecule.example
         - removed.molecule.example

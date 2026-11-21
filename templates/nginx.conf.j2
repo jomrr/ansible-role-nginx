@@ -135,7 +135,7 @@ http {
 {% if __nginx_listener.protocol | default('http') == 'https' %}
         ssl_reject_handshake on;
 {% endif %}
-        return 404;
+        return {{ nginx_default_server_return }};
     }
 
 {% endfor %}

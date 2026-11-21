@@ -62,6 +62,8 @@ collections:
     version: '>=12.0.0'
   - name: community.crypto
     version: '>=2.0.0'
+  - name: containers.podman
+    version: '>=1.20.0'
 ```
 
 ## Role Variables
@@ -145,6 +147,19 @@ nginx_listen:
   - address: 0.0.0.0
     port: 443
     protocol: https
+```
+
+### `nginx_default_server_return`
+
+Type: `int`. Required: `false`.
+
+Returns HTTP 404 or closes without an HTTP response for requests handled by a
+default server.
+
+Default:
+
+```yaml
+nginx_default_server_return: 404
 ```
 
 ### `nginx_http2`
@@ -661,10 +676,12 @@ configuration is applied.
   configured ports without disabling SELinux enforcement. Port labels are shared
   host policy and do not grant firewall access.
 - Default-deny listeners prevent requests with unexpected hostnames from
-  reaching an application selected by listener order. Rejecting unknown TLS and
-  QUIC SNI also avoids presenting an unrelated application's certificate. This
-  protection requires a matching default listener for every application address
-  and port; it does not replace authentication.
+  reaching an application selected by listener order. Returning 404 and closing
+  without a response both deny access; suppressing the response with 444 is not
+  an additional access-control boundary. Rejecting unknown TLS and QUIC SNI also
+  avoids presenting an unrelated application's certificate. This protection
+  requires a matching default listener for every application address and port;
+  it does not replace authentication.
 - An unreadable, root-owned document root prevents an omitted proxy handler from
   exposing packaged web content or local files. Disabling directory listings
   adds protection if a readable directory is introduced deliberately. Native
@@ -782,6 +799,13 @@ configuration is applied.
 
 ## Operational Notes
 
+- nginx_default_server_return defaults to 404, providing a regular HTTP error
+  response. Select 444 to close the connection without an HTTP response; clients
+  and monitoring then report a connection error instead of an HTTP status. This
+  policy only applies to requests reaching HTTP processing in a managed default
+  server. TLS and QUIC handshakes with unknown or missing SNI remain rejected by
+  ssl_reject_handshake, before an HTTP response is possible. Default HTTPS
+  listeners do not use fallback certificates.
 - nginx_modules is the complete dynamic-module selection. Each entry specifies a
   distribution package and its load_module path; entries load in list order.
   Declare module dependencies explicitly. Unselected `nginx-mod-*` and
